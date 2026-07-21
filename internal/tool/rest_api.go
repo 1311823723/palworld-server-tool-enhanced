@@ -258,6 +258,11 @@ func Shutdown(seconds int, message string) error {
 	return nil
 }
 
+func Save() error {
+	_, err := callApi("POST", "/v1/api/save", nil)
+	return err
+}
+
 func DoExit() error {
 	_, err := callApi("POST", "/v1/api/stop", nil)
 	if err != nil {

@@ -20,8 +20,10 @@ import (
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
+	"github.com/zaigie/palworld-server-tool/internal/supervisor"
 	"github.com/zaigie/palworld-server-tool/internal/system"
 	"github.com/zaigie/palworld-server-tool/internal/task"
+	"github.com/zaigie/palworld-server-tool/internal/tool"
 )
 
 var (
@@ -33,6 +35,14 @@ const startupPortEnvironment = "PST_PORT"
 type startupPort struct {
 	Port   int
 	Source config.WebPortOverrideSource
+}
+
+type palServerController struct{}
+
+func (palServerController) Save() error { return tool.Save() }
+
+func (palServerController) Shutdown(seconds int, message string) error {
+	return tool.Shutdown(seconds, message)
 }
 
 //go:embed assets/*
@@ -73,6 +83,16 @@ func main() {
 		logger.Panic(err)
 	}
 	config.SetRuntimeWeb(settings.Web)
+	serverSupervisor := supervisor.New(
+		settings.ServerProcess,
+		supervisor.OSProcessLauncher{},
+		supervisor.OSProcessDetector{},
+		palServerController{},
+	)
+	defer serverSupervisor.Close()
+	if err := serverSupervisor.Bootstrap(); err != nil {
+		logger.Errorf("Server process supervisor startup: %v\n", err)
+	}
 
 	db := database.GetDB()
 	defer db.Close()
@@ -92,7 +112,7 @@ func main() {
 	startScheduler := func() {
 		go task.Schedule(db)
 	}
-	api.RegisterRouter(router, startScheduler)
+	api.RegisterRouterWithSupervisor(router, startScheduler, serverSupervisor)
 
 	assetsFS, _ := fs.Sub(assets, "assets")
 	router.StaticFS("/assets", http.FS(assetsFS))

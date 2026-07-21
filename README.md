@@ -30,6 +30,40 @@
 
 业务数据保存在 `pst.db`，PST 配置和管理员凭据单独保存在 `config.db`。清理或重置配置不会影响玩家、公会、RCON 和备份记录。
 
+## 本分支新增：Windows 本地进程管理
+
+本分支在保留原项目玩家、公会、RCON、备份、定时任务和配置中心能力的基础上，增加 Windows 本地 Palworld Dedicated Server 进程管理：
+
+- 从 PST 管理界面启动固定路径的 `PalServer.exe`
+- 通过官方 REST API 保存世界、平滑停服和平滑重启
+- 服务器意外退出后延迟自动重启，并在短时间连续失败时触发崩溃循环保护
+- 管理员手动停服后保持关闭，不会被守护程序再次拉起
+- 在桌面端和移动端查看 PID、运行时间、守护状态、最近退出和错误
+- PST 重启时识别已经运行的 `PalServer.exe` 或 `PalServer-Win64-Shipping-Cmd.exe`，避免重复启动
+
+### 配置 Windows PalServer
+
+进入管理模式，打开“PST 配置”中的“Windows PalServer 进程”，填写：
+
+1. 开启“本机进程管理”。
+2. 将“PalServer.exe 路径”设为服务器实际路径，例如 `D:\Program Files\Steam\steamapps\common\PalServer\PalServer.exe`。
+3. 工作目录可以留空；留空时使用可执行文件所在目录。
+4. 每条启动参数单独添加，例如 `-port=8211`、`-players=8`、`-logformat=text`。不要输入一整条 CMD 命令。
+5. 按需开启崩溃守护，并配置重启等待时间、连续失败上限和统计窗口。
+
+保存后 supervisor 会立即加载新配置，但不会擅自重启当前正在运行的游戏服务器。回到管理员概览的“服务器进程”卡片即可保存世界、启动、平滑重启、平滑停服或切换守护状态。重启会等待旧进程实际退出，再从退出时刻开始计算重启延迟，不会同时启动两个实例。
+
+Windows 是本功能的首要支持平台。Linux 和 macOS 仍可使用 PST 原有管理功能，但尝试启动本地 PalServer 进程时会收到明确的 `unsupported platform` 错误。Docker 部署也不应使用宿主机 Windows 进程管理，应继续通过 REST API、RCON 或 `pst-agent` 管理独立游戏服务器。
+
+### 进程控制安全注意事项
+
+- 进程控制接口全部要求 PST 管理员 JWT，不提供匿名访问。
+- PST 只允许启动配置中的 `PalServer.exe` 或 `PalServer-Win64-Shipping-Cmd.exe`，不提供任意 CMD、PowerShell 或 Shell 执行接口。
+- 配置中的启动参数是字符串数组；`&`、`|`、`>`、`<`、`cmd.exe` 和 `powershell.exe` 会被后端拒绝。
+- 配置查询不会返回 RCON 密码、REST API 密码、JWT 或其他敏感凭据。示例密码统一使用 `YOUR_ADMIN_PASSWORD`。
+- 不要把游戏 REST API 端口 `8212`、RCON 端口 `25575` 或 PST 进程控制 API 直接暴露到公网。
+- 通过 Cloudflare Tunnel 发布 PST 时，除 PST 登录外必须再启用 Cloudflare Access 等额外身份验证，并限制可访问用户。
+
 > [!NOTE]
 > 如果您需要幻兽帕鲁服务器或工具搭建交流，或者需要闭源付费定制功能开发，请加入幻兽帕鲁服务器管理交流群。
 
@@ -174,6 +208,24 @@ docker run -d --name pst-agent \
 
 - [APIFox 在线接口文档](https://q4ly3bfcop.apifox.cn/)
 - 本地 Swagger：`http://127.0.0.1:8080/swagger/index.html`
+
+本分支新增的管理员接口：
+
+- `GET /api/server/process`
+- `POST /api/server/save`
+- `POST /api/server/start`
+- `POST /api/server/restart`
+- `POST /api/server/stop`
+- `POST /api/server/watchdog`
+
+本地验证：
+
+```bash
+go test ./...
+cd web
+pnpm install --frozen-lockfile
+pnpm build
+```
 
 ## 感谢
 

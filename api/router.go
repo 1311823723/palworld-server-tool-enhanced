@@ -55,6 +55,10 @@ func Logger() gin.HandlerFunc {
 }
 
 func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
+	RegisterRouterWithSupervisor(r, onConfigInitialized, nil)
+}
+
+func RegisterRouterWithSupervisor(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager) {
 	r.Use(Logger(), gin.Recovery())
 
 	r.POST("/api/login", loginHandler)
@@ -88,6 +92,12 @@ func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 	{
 		authGroup.POST("/server/broadcast", publishBroadcast)
 		authGroup.POST("/server/shutdown", shutdownServer)
+		authGroup.GET("/server/process", getServerProcess(processManager))
+		authGroup.POST("/server/save", saveServer(processManager))
+		authGroup.POST("/server/start", startServer(processManager))
+		authGroup.POST("/server/restart", restartServer(processManager))
+		authGroup.POST("/server/stop", stopServer(processManager))
+		authGroup.POST("/server/watchdog", setServerWatchdog(processManager))
 		authGroup.PUT("/player", putPlayers)
 		authGroup.POST("/player/:player_uid/kick", kickPlayer)
 		authGroup.POST("/player/:player_uid/ban", banPlayer)
@@ -113,7 +123,7 @@ func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 		authGroup.GET("/backup/:backup_id", downloadBackup)
 		authGroup.DELETE("/backup/:backup_id", deleteBackup)
 		authGroup.GET("/config", getConfig)
-		authGroup.PUT("/config", putConfig)
+		authGroup.PUT("/config", putConfigWithSupervisor(processManager))
 		authGroup.GET("/config/directories", listDirectories)
 		authGroup.POST("/config/test/save", testSaveConfig)
 		authGroup.POST("/config/test/rcon", testRconConfig)

@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import dayjs from "dayjs";
 import { useI18n } from "vue-i18n";
 import ApiService from "@/service/api";
+import ServerProcessCard from "@/components/ServerProcessCard.vue";
 
 const props = defineProps({
   serverInfo: { type: Object, default: () => ({}) },
@@ -136,6 +137,8 @@ onMounted(loadOverview);
           </n-card>
         </n-gi>
       </n-grid>
+
+      <server-process-card class="mt-4" />
 
       <n-grid cols="1 760:2" :x-gap="16" :y-gap="16" class="mt-4">
         <n-gi>

@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -75,13 +78,27 @@ type ManageConfig struct {
 	KickNonWhitelist bool `json:"kick_non_whitelist"`
 }
 
+type ServerProcessConfig struct {
+	Enabled                     bool     `json:"enabled"`
+	ExecutablePath              string   `json:"executable_path"`
+	WorkingDirectory            string   `json:"working_directory"`
+	Arguments                   []string `json:"arguments"`
+	WatchdogEnabled             bool     `json:"watchdog_enabled"`
+	RestartDelaySeconds         int      `json:"restart_delay_seconds"`
+	GracefulShutdownSeconds     int      `json:"graceful_shutdown_seconds"`
+	GracefulShutdownMessage     string   `json:"graceful_shutdown_message"`
+	MaxRestartAttempts          int      `json:"max_restart_attempts"`
+	RestartAttemptWindowSeconds int      `json:"restart_attempt_window_seconds"`
+}
+
 type Config struct {
-	Web    WebConfig    `json:"web"`
-	Task   TaskConfig   `json:"task"`
-	Rcon   RconConfig   `json:"rcon"`
-	Rest   RestConfig   `json:"rest"`
-	Save   SaveConfig   `json:"save"`
-	Manage ManageConfig `json:"manage"`
+	Web           WebConfig           `json:"web"`
+	Task          TaskConfig          `json:"task"`
+	Rcon          RconConfig          `json:"rcon"`
+	Rest          RestConfig          `json:"rest"`
+	Save          SaveConfig          `json:"save"`
+	Manage        ManageConfig        `json:"manage"`
+	ServerProcess ServerProcessConfig `json:"server_process"`
 }
 
 func Default() Config {
@@ -99,6 +116,11 @@ func Default() Config {
 	value.Save.SyncInterval = 120
 	value.Save.BackupInterval = 14400
 	value.Save.BackupKeepDays = 7
+	value.ServerProcess.RestartDelaySeconds = 10
+	value.ServerProcess.GracefulShutdownSeconds = 30
+	value.ServerProcess.GracefulShutdownMessage = "Server restart in 30 seconds"
+	value.ServerProcess.MaxRestartAttempts = 5
+	value.ServerProcess.RestartAttemptWindowSeconds = 300
 	return value
 }
 
@@ -179,6 +201,7 @@ func (s *Store) Initialize(password string) error {
 }
 
 func (s *Store) Update(value Config, newPassword string) error {
+	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
 	if err := Validate(value); err != nil {
 		return err
 	}
@@ -207,7 +230,25 @@ func (s *Store) Update(value Config, newPassword string) error {
 	})
 }
 
+func (s *Store) SetServerProcessWatchdog(enabled bool) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(configBucket)
+		value := Default()
+		if err := json.Unmarshal(bucket.Get(configKey), &value); err != nil {
+			return err
+		}
+		value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
+		value.ServerProcess.WatchdogEnabled = enabled
+		data, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		return bucket.Put(configKey, data)
+	})
+}
+
 func Validate(value Config) error {
+	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
 	if err := ValidateWebPort(value.Web.Port); err != nil {
 		return err
 	}
@@ -223,7 +264,79 @@ func Validate(value Config) error {
 	if value.Rcon.Timeout < 0 || value.Rest.Timeout < 0 || value.Save.BackupKeepDays < 0 {
 		return errors.New("timeouts and backup retention cannot be negative")
 	}
+	if err := ValidateServerProcess(value.ServerProcess); err != nil {
+		return err
+	}
 	return nil
+}
+
+func NormalizeServerProcess(value ServerProcessConfig) ServerProcessConfig {
+	defaults := Default().ServerProcess
+	if value.MaxRestartAttempts < 1 {
+		value.MaxRestartAttempts = defaults.MaxRestartAttempts
+	}
+	if value.RestartAttemptWindowSeconds < 1 {
+		value.RestartAttemptWindowSeconds = defaults.RestartAttemptWindowSeconds
+	}
+	if value.GracefulShutdownMessage == "" {
+		value.GracefulShutdownMessage = defaults.GracefulShutdownMessage
+	}
+	return value
+}
+
+func ValidateServerProcess(value ServerProcessConfig) error {
+	if value.RestartDelaySeconds < 0 || value.GracefulShutdownSeconds < 0 || value.RestartAttemptWindowSeconds < 1 {
+		return errors.New("server process delays must be non-negative and restart window must be positive")
+	}
+	if value.MaxRestartAttempts < 1 {
+		return errors.New("server process max restart attempts must be positive")
+	}
+	for _, argument := range value.Arguments {
+		lower := strings.ToLower(argument)
+		if strings.ContainsAny(argument, "&|><\r\n\x00") || strings.Contains(lower, "cmd.exe") || strings.Contains(lower, "powershell.exe") {
+			return fmt.Errorf("unsafe server process argument %q", argument)
+		}
+	}
+	if !value.Enabled {
+		return nil
+	}
+	path := strings.TrimSpace(value.ExecutablePath)
+	if path == "" {
+		return errors.New("server process executable path is required")
+	}
+	base := strings.ToLower(filepath.Base(strings.ReplaceAll(path, `\`, "/")))
+	if base != "palserver.exe" && base != "palserver-win64-shipping-cmd.exe" {
+		return errors.New("server process executable must be PalServer.exe or PalServer-Win64-Shipping-Cmd.exe")
+	}
+	foreignWindowsPath := runtime.GOOS != "windows" && (strings.Contains(path, `:\`) || strings.Contains(path, `:/`))
+	if foreignWindowsPath {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("server process executable: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("server process executable must be a regular file")
+	}
+	workingDirectory := strings.TrimSpace(value.WorkingDirectory)
+	if workingDirectory == "" {
+		workingDirectory = filepath.Dir(path)
+	}
+	workingInfo, err := os.Stat(workingDirectory)
+	if err != nil {
+		return fmt.Errorf("server process working directory: %w", err)
+	}
+	if !workingInfo.IsDir() {
+		return errors.New("server process working directory must be a directory")
+	}
+	return nil
+}
+
+func (value Config) Redacted() Config {
+	value.Rcon.Password = ""
+	value.Rest.Password = ""
+	return value
 }
 
 func ValidateWebPort(port int) error {

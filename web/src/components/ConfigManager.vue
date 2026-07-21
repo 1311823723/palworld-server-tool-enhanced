@@ -64,6 +64,18 @@ const emptySettings = () => ({
     backup_keep_days: 7,
   },
   manage: { kick_non_whitelist: false },
+  server_process: {
+    enabled: false,
+    executable_path: "",
+    working_directory: "",
+    arguments: [],
+    watchdog_enabled: false,
+    restart_delay_seconds: 10,
+    graceful_shutdown_seconds: 30,
+    graceful_shutdown_message: "Server restart in 30 seconds",
+    max_restart_attempts: 5,
+    restart_attempt_window_seconds: 300,
+  },
 });
 const settings = ref(emptySettings());
 
@@ -124,7 +136,11 @@ const load = async () => {
     emit("update:show", false);
     return;
   }
-  settings.value = data.value;
+  settings.value = { ...emptySettings(), ...data.value };
+  settings.value.server_process = {
+    ...emptySettings().server_process,
+    ...(data.value.server_process || {}),
+  };
   sourcePaths.value[settings.value.save.source_mode] = settings.value.save.path;
   newPassword.value = "";
   passwordConfirmation.value = "";
@@ -377,6 +393,90 @@ watch(
                   />
                 </n-form-item>
               </div>
+            </n-form>
+          </n-collapse-item>
+
+          <n-collapse-item
+            :title="$t('configuration.serverProcessSection')"
+            name="server-process"
+          >
+            <n-alert type="warning" :bordered="false" class="mb-3">
+              {{ $t("configuration.serverProcessSecurity") }}
+            </n-alert>
+            <n-form label-placement="top">
+              <div class="form-grid">
+                <n-form-item :label="$t('configuration.processEnabled')">
+                  <n-switch v-model:value="settings.server_process.enabled" />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.processWatchdog')">
+                  <n-switch
+                    v-model:value="settings.server_process.watchdog_enabled"
+                  />
+                </n-form-item>
+              </div>
+              <n-form-item :label="$t('configuration.executablePath')">
+                <n-input
+                  v-model:value="settings.server_process.executable_path"
+                  placeholder="D:\\Program Files\\Steam\\steamapps\\common\\PalServer\\PalServer.exe"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('configuration.workingDirectory')">
+                <n-input
+                  v-model:value="settings.server_process.working_directory"
+                  :placeholder="$t('configuration.workingDirectoryHint')"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('configuration.processArguments')">
+                <n-dynamic-input
+                  v-model:value="settings.server_process.arguments"
+                  :placeholder="$t('configuration.processArgumentPlaceholder')"
+                />
+              </n-form-item>
+              <div class="form-grid">
+                <n-form-item :label="$t('configuration.restartDelaySeconds')">
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.restart_delay_seconds
+                    "
+                    :min="0"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item
+                  :label="$t('configuration.gracefulShutdownSeconds')"
+                >
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.graceful_shutdown_seconds
+                    "
+                    :min="0"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.maxRestartAttempts')">
+                  <n-input-number
+                    v-model:value="settings.server_process.max_restart_attempts"
+                    :min="1"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.restartAttemptWindow')">
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.restart_attempt_window_seconds
+                    "
+                    :min="1"
+                    class="full-width"
+                  />
+                </n-form-item>
+              </div>
+              <n-form-item :label="$t('configuration.gracefulShutdownMessage')">
+                <n-input
+                  v-model:value="
+                    settings.server_process.graceful_shutdown_message
+                  "
+                />
+              </n-form-item>
             </n-form>
           </n-collapse-item>
 

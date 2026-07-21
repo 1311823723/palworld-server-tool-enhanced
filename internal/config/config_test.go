@@ -2,11 +2,34 @@ package config
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"go.etcd.io/bbolt"
 )
+
+func TestServerProcessConfigurationRejectsUnsafeValues(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "PalServer.exe")
+	if err := os.WriteFile(executable, []byte("fixture"), 0600); err != nil {
+		t.Fatalf("create executable fixture: %v", err)
+	}
+	value := Default().ServerProcess
+	value.Enabled = true
+	value.ExecutablePath = executable
+	value.Arguments = []string{"-port=8211", "& powershell.exe"}
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("unsafe process argument must be rejected")
+	}
+	value.Arguments = []string{"-port=8211"}
+	if err := ValidateServerProcess(value); err != nil {
+		t.Fatalf("valid process configuration rejected: %v", err)
+	}
+	value.ExecutablePath = filepath.Join(t.TempDir(), "PalServer.exe")
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("missing executable must be rejected")
+	}
+}
 
 func TestStoreFirstRunInitializationAndPersistence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "config.db")

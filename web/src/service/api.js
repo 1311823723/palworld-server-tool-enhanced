@@ -52,6 +52,24 @@ class ApiService extends Service {
     let data = param;
     return this.fetch(`/api/server/shutdown`).post(data).json();
   }
+  async getServerProcess() {
+    return this.fetch(`/api/server/process`).get().json();
+  }
+  async saveServer() {
+    return this.fetch(`/api/server/save`).post().json();
+  }
+  async startServer() {
+    return this.fetch(`/api/server/start`).post().json();
+  }
+  async restartServer(param) {
+    return this.fetch(`/api/server/restart`).post(param).json();
+  }
+  async stopServer(param) {
+    return this.fetch(`/api/server/stop`).post(param).json();
+  }
+  async setServerWatchdog(param) {
+    return this.fetch(`/api/server/watchdog`).post(param).json();
+  }
 
   async getPlayerList(param) {
     const query = this.generateQuery(param);
