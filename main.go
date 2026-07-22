@@ -147,7 +147,7 @@ func main() {
 		c.Writer.Write(file)
 	}
 	router.GET("/", serveWebApp)
-	for _, route := range []string{"/work-pals", "/inventory", "/world-settings", "/breeding-farms"} {
+	for _, route := range []string{"/work-pals", "/players", "/pal-management", "/base-camps", "/inventory", "/world-settings", "/breeding-farms"} {
 		router.GET(route, serveWebApp)
 	}
 	router.GET("/pal-conf", func(c *gin.Context) {

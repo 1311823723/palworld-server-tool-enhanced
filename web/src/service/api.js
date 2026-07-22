@@ -77,6 +77,15 @@ class ApiService extends Service {
   async getBaseCamp(baseId) {
     return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}`).get().json();
   }
+  async getBaseAliases() {
+    return this.fetch(`/api/base-camps/aliases`).get().json();
+  }
+  async updateBaseAlias(baseId, param) {
+    return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}/alias`).put(param).json();
+  }
+  async deleteBaseAlias(baseId) {
+    return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}/alias`).delete().json();
+  }
   async getBaseWorkPals(baseId, param = {}) {
     const query = this.generateQuery(param);
     return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}/work-pals?${query}`).get().json();

@@ -9,7 +9,6 @@ import {
 } from "@vicons/material";
 import {
   GameController,
-  LanguageSharp,
   ShieldCheckmarkSharp,
   Terminal,
   Settings,
@@ -55,7 +54,6 @@ const currentDisplay = ref("players");
 const playerList = ref([]);
 const onlinePlayerList = ref([]);
 const guildList = ref([]);
-const languageOptions = ref([]);
 const asArray = (value) => (Array.isArray(value) ? value : []);
 
 const isLogin = ref(false);
@@ -66,23 +64,6 @@ const isDarkMode = ref(
 
 const updateDarkMode = (e) => {
   isDarkMode.value = e.matches;
-};
-
-const handleSelectLanguage = (key) => {
-  message.info(t("message.changelanguage"));
-  if (key === "zh") {
-    localStorage.setItem("locale", "zh");
-    // locale.value = "zh";
-  } else if (key === "ja") {
-    localStorage.setItem("locale", "ja");
-    // locale.value = "ja";
-  } else {
-    localStorage.setItem("locale", "en");
-    // locale.value = "en";
-  }
-  setTimeout(() => {
-    location.reload();
-  }, 1000);
 };
 
 const toPalConf = () => {
@@ -415,23 +396,6 @@ const handleBackupList = () => {
 
 onMounted(async () => {
   locale.value = localStorage.getItem("locale");
-  languageOptions.value = [
-    {
-      label: "简体中文",
-      key: "zh",
-      disabled: locale.value == "zh",
-    },
-    {
-      label: "English",
-      key: "en",
-      disabled: locale.value == "en",
-    },
-    {
-      label: "日本語",
-      key: "ja",
-      disabled: locale.value == "ja",
-    },
-  ];
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   mediaQuery.addEventListener("change", updateDarkMode);
   isDarkMode.value = mediaQuery.matches;
@@ -506,24 +470,6 @@ onMounted(async () => {
       </n-space>
 
       <n-space>
-        <n-dropdown
-          trigger="hover"
-          :options="languageOptions"
-          @select="handleSelectLanguage"
-        >
-          <n-button
-            type="default"
-            secondary
-            strong
-            circle
-            :aria-label="$t('button.language')"
-          >
-            <template #icon>
-              <n-icon><LanguageSharp /></n-icon>
-            </template>
-          </n-button>
-        </n-dropdown>
-
         <n-button
           type="primary"
           secondary
@@ -610,6 +556,9 @@ onMounted(async () => {
               </n-button>
               <n-button secondary strong round @click="router.push('/work-pals')">
                 {{ $t("enhanced.workPals") }}
+              </n-button>
+              <n-button secondary strong round @click="router.push('/base-camps')">
+                {{ $t("enhanced.baseCamps") }}
               </n-button>
             </n-button-group>
             <n-space>

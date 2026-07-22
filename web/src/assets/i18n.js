@@ -3,7 +3,7 @@ import { createI18n } from "vue-i18n";
 const messages = {
   en: {
     title: "PalWorld Server Tool",
-    enhanced: { home: "Home", workPals: "Base Pals", inventory: "Inventory", worldSettings: "World settings", breedingFarms: "Breeding farms" },
+    enhanced: { home: "Home", baseCamps: "Base management", workPals: "Base Pals", inventory: "Inventory", worldSettings: "World settings", breedingFarms: "Breeding farms" },
     breeding: {
       title: "Breeding farm monitor", subtitle: "Read-only farm status and persistent new-egg alerts from the latest save snapshot.",
       snapshotNotice: "This is save data, not live telemetry. Alerts are generated only from validated direct save references.", stale: "The save snapshot is stale.", lastParseFailed: "The latest save parse failed; alerts are paused. Failed at:", unreliable: "This game/save format is not validated. Egg alerts are disabled to avoid false positives.",
@@ -574,7 +574,7 @@ const messages = {
   },
   zh: {
     title: "幻兽帕鲁服务器工具",
-    enhanced: { home: "首页", workPals: "据点工作帕鲁", inventory: "全服库存", worldSettings: "世界设置", breedingFarms: "配种农场" },
+    enhanced: { home: "首页", baseCamps: "据点管理", workPals: "据点工作帕鲁", inventory: "全服库存", worldSettings: "世界设置", breedingFarms: "配种农场" },
     breeding: {
       title: "配种农场监控", subtitle: "基于最近存档的只读农场状态与持久化新蛋提醒。",
       snapshotNotice: "这里展示的是存档快照，不是实时遥测。仅在直接存档引用已验证时生成提醒。", stale: "存档快照已过期。", lastParseFailed: "最近一次存档解析失败，提醒已暂停。失败时间：", unreliable: "当前游戏或存档格式尚未验证；为避免误报，产蛋提醒已禁用。",
@@ -1024,8 +1024,8 @@ const messages = {
       shutdownSeconds: "关服倒计时（秒）",
       restartDelay: "实际退出后的等待时间（秒）",
       message: "游戏内广播消息",
-      confirmRestart: "输入 RESTART 确认",
-      confirmStop: "输入 SHUTDOWN 确认",
+      confirmRestart: "输入“重启”确认",
+      confirmStop: "输入“停服”确认",
       keepStopped: "关闭后保持停止",
       states: {
         stopped: "已停止",
@@ -1050,11 +1050,11 @@ const messages = {
     danger: {
       title: "危险操作 · 关闭服务器",
       warning: "此操作会中断所有在线玩家",
-      description: "请配置倒计时和广播内容，并输入 SHUTDOWN 二次确认。",
+      description: "请配置倒计时和广播内容，并输入“停服”二次确认。",
       countdown: "倒计时（秒）",
       broadcastMessage: "关服广播内容",
       confirmLabel: "二次确认",
-      confirmPlaceholder: "请输入 SHUTDOWN",
+      confirmPlaceholder: "请输入“停服”",
       defaultMessage: "服务器将在 {seconds} 秒后关闭，请及时下线。",
     },
     backup: {
@@ -1133,7 +1133,7 @@ const messages = {
     },
   },
   ja: {
-    enhanced: { home: "ホーム", workPals: "拠点パル", inventory: "インベントリ", worldSettings: "ワールド設定", breedingFarms: "配合牧場" },
+    enhanced: { home: "ホーム", baseCamps: "拠点管理", workPals: "拠点パル", inventory: "インベントリ", worldSettings: "ワールド設定", breedingFarms: "配合牧場" },
     breeding: {
       title: "配合牧場モニター", subtitle: "最新セーブの読み取り専用ステータスと永続的な新規タマゴ通知です。",
       snapshotNotice: "リアルタイム情報ではなくセーブのスナップショットです。検証済みの直接参照だけを通知します。", stale: "セーブのスナップショットが古くなっています。", lastParseFailed: "最新のセーブ解析に失敗したため通知を停止しています。失敗時刻:", unreliable: "現在のセーブ形式は未検証です。誤通知を防ぐため通知を停止しています。",
@@ -1700,7 +1700,7 @@ const messages = {
 
 const i18n = createI18n({
   legacy: false,
-  locale: localStorage.getItem("locale") || "zh",
+  locale: "zh",
   fallbackLocale: "zh",
   messages,
 });

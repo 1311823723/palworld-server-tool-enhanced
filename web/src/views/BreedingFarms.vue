@@ -8,6 +8,7 @@ import OperationsShell from "@/components/OperationsShell.vue";
 import pageStore from "@/stores/model/page";
 import { breedingCapabilitiesReliable, unseenBreedingEvents } from "@/utils/enhancedViews";
 import palMap from "@/assets/pal.json";
+import { localizedPalName } from "@/utils/gameLabels";
 
 const api = new ApiService();
 const message = useMessage();
@@ -47,19 +48,20 @@ const count = (value) => value == null ? t("breeding.unknown") : Number(value).t
 const shortID = (value) => value ? `${value.slice(0, 8)}…${value.slice(-4)}` : t("breeding.unknown");
 const formatDate = (value) => value ? new Intl.DateTimeFormat(locale.value, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)) : t("breeding.unknown");
 const relativeAge = (value) => value ? t("breeding.ageSeconds", { seconds: Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000)) }) : t("breeding.unknown");
-const displayPal = (id) => palMap[locale.value]?.[id] || palMap.en?.[id] || id || t("breeding.unknown");
+const displayPal = (id) => localizedPalName(id, palMap, "zh");
 const statusLabel = (status) => t(`breeding.status.${status || "unknown"}`);
 const statusType = (status) => ({ egg_ready: "success", parent_missing: "warning", cake_empty: "error", unsupported: "default" }[status] || "info");
 const genderLabel = (gender) => ({ Male: "♂", Female: "♀" }[gender] || "—");
 
-const baseOptions = computed(() => [...new Map(farms.value.map((farm) => [farm.base_id, { label: farm.base_name || shortID(farm.base_id), value: farm.base_id }])).values()]);
+const baseName = (value) => value.base_display_name || value.base_name || shortID(value.base_id);
+const baseOptions = computed(() => [...new Map(farms.value.map((farm) => [farm.base_id, { label: baseName(farm), value: farm.base_id }])).values()]);
 const guildOptions = computed(() => [...new Map(farms.value.map((farm) => [farm.guild_id, { label: farm.guild_name || shortID(farm.guild_id), value: farm.guild_id }])).values()]);
-const farmOptions = computed(() => farms.value.map((farm) => ({ label: `${farm.base_name || t("breeding.base")} · ${shortID(farm.farm_id)}`, value: farm.farm_id })));
+const farmOptions = computed(() => farms.value.map((farm) => ({ label: `${baseName(farm)} · ${shortID(farm.farm_id)}`, value: farm.farm_id })));
 const groupedFarms = computed(() => {
   const groups = new Map();
   for (const farm of farms.value) {
     const key = farm.base_id || "unknown";
-    if (!groups.has(key)) groups.set(key, { baseID: key, baseName: farm.base_name || t("breeding.unknown"), guildName: farm.guild_name || t("breeding.unknown"), farms: [], eggTotal: 0, cakeTotal: 0, abnormal: 0 });
+    if (!groups.has(key)) groups.set(key, { baseID: key, baseName: baseName(farm), guildName: farm.guild_name || t("breeding.unknown"), farms: [], eggTotal: 0, cakeTotal: 0, abnormal: 0 });
     const group = groups.get(key);
     group.farms.push(farm);
     group.eggTotal += Number(farm.egg_count || 0);
@@ -115,7 +117,7 @@ async function loadSettings() {
 function notifyBrowser(event) {
   if (!settings.browser_notifications || typeof Notification === "undefined" || Notification.permission !== "granted") return;
   const notification = new Notification(t("breeding.browserTitle"), {
-    body: t("breeding.browserBody", { base: event.base_name || t("breeding.unknown"), previous: event.previous_count, current: event.current_count }),
+    body: t("breeding.browserBody", { base: event.base_display_name || event.base_name || t("breeding.unknown"), previous: event.previous_count, current: event.current_count }),
     tag: `pst-breeding-${event.event_id}`,
   });
   notification.onclick = () => {
@@ -136,7 +138,7 @@ async function loadUnreadEvents({ announce = true } = {}) {
   for (const event of unseen) {
     seenEventIDs.add(event.event_id);
     notifyBrowser(event);
-    if (settings.in_app_notifications) message.success(t("breeding.browserBody", { base: event.base_name || t("breeding.unknown"), previous: event.previous_count, current: event.current_count }), { duration: 6000 });
+    if (settings.in_app_notifications) message.success(t("breeding.browserBody", { base: event.base_display_name || event.base_name || t("breeding.unknown"), previous: event.previous_count, current: event.current_count }), { duration: 6000 });
   }
   if (unseen.length) persistSeenIDs();
 }
@@ -189,8 +191,8 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
 </script>
 
 <template>
-  <operations-shell :title="t('breeding.title')" :subtitle="t('breeding.subtitle')">
-    <n-alert type="info" class="section-gap">{{ t("breeding.snapshotNotice") }}</n-alert>
+  <operations-shell title="配种农场" subtitle="查看配种帕鲁、蛋糕余量和可拾取的蛋，并通过游戏内聊天接收可靠的产蛋提醒。" :metadata="metadata" :loading="loading" @refresh="refreshAll">
+    <n-alert type="info" :bordered="false" class="section-gap">数据来自实际世界存档。默认每 120 秒检查一次，页面显示的是最近一次成功解析结果，而不是游戏内存实时遥测。</n-alert>
     <n-alert v-if="metadata.is_stale" type="warning" class="section-gap">{{ t("breeding.stale") }} {{ formatDate(metadata.save_file_time || metadata.snapshot_time) }}</n-alert>
     <n-alert v-if="parserStatus.failed" type="error" class="section-gap">{{ t("breeding.lastParseFailed") }} {{ formatDate(parserStatus.failed_at) }}</n-alert>
     <n-alert v-if="!reliable" type="error" class="section-gap">{{ t("breeding.unreliable") }}</n-alert>
@@ -290,9 +292,9 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
         <n-button v-if="unreadTotal" block secondary class="drawer-read-all" @click="markAllRead">{{ t("breeding.markAllRead") }}</n-button>
         <n-list v-if="events.length" bordered>
           <n-list-item v-for="event in events" :key="event.event_id">
-            <n-thing :title="t('breeding.browserTitle')" :description="`${event.base_name || t('breeding.unknown')} · ${formatDate(event.created_at)}`">
+            <n-thing :title="t('breeding.browserTitle')" :description="`${event.base_display_name || event.base_name || t('breeding.unknown')} · ${formatDate(event.created_at)}`">
               <template #header-extra><n-tag size="small" :type="event.read ? 'default' : 'success'">{{ event.read ? t("breeding.read") : t("breeding.unread") }}</n-tag></template>
-              <p>{{ t("breeding.browserBody", { base: event.base_name || t('breeding.unknown'), previous: event.previous_count, current: event.current_count }) }}</p>
+              <p>{{ t("breeding.browserBody", { base: event.base_display_name || event.base_name || t('breeding.unknown'), previous: event.previous_count, current: event.current_count }) }}</p>
               <n-space><n-button size="small" secondary @click="router.push({path:'/breeding-farms',query:{farm:event.farm_id}}); showNotifications=false">{{ t("breeding.viewFarm") }}</n-button><n-button size="small" text @click="markRead(event)">{{ t("breeding.markRead") }}</n-button></n-space>
             </n-thing>
           </n-list-item>

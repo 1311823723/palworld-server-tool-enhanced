@@ -89,7 +89,7 @@ async function validateChanges() {
 }
 
 async function applyChanges() {
-  if (confirmText.value !== "APPLY") return;
+  if (confirmText.value !== "应用") return;
   applying.value = true;
   const { data, statusCode } = await api.applyWorldSettings(requestBody());
   applying.value = false;
@@ -129,7 +129,7 @@ onMounted(load);
 </script>
 
 <template>
-  <operations-shell title="Palworld 世界设置" subtitle="基于随 PST 发布的官方字段表编辑 PalWorldSettings.ini；修改通过备份、平滑重启和健康检查事务应用。">
+  <operations-shell title="世界设置" subtitle="按分类编辑 PalWorldSettings.ini。每次应用都会先备份、保存世界并通过平滑重启生效。">
     <n-alert type="warning" class="mb-4">仅支持由 PST 配置的 Windows 本地 PalServer。密码不会回显；留空表示保持不变，清空必须显式选择。关闭 REST API 会使 PST 的保存、关服和玩家功能不可用。</n-alert>
     <n-card size="small" class="mb-4">
       <n-descriptions :column="isMobile ? 1 : 3" size="small">
@@ -187,10 +187,10 @@ onMounted(load);
     <n-modal v-model:show="showDiff" preset="card" title="确认世界设置变更" style="width:min(760px,94vw)">
       <n-alert v-for="warning in validation?.warnings || []" :key="warning" type="warning" class="mb-2">{{ warning }}</n-alert>
       <n-data-table :columns="[{title:'字段',key:'key'},{title:'原值',key:'before',render:r=>r.secret?'（敏感值已隐藏）':JSON.stringify(r.before)},{title:'新值',key:'after',render:r=>r.secret?'（敏感值已隐藏）':JSON.stringify(r.after)}]" :data="validation?.differences || []" :bordered="false" />
-      <n-grid :cols="isMobile ? 1 : 3" :x-gap="12" class="mt-4"><n-gi><n-form-item label="关服倒计时"><n-input-number v-model:value="shutdownSeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="重启等待"><n-input-number v-model:value="restartDelaySeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="输入 APPLY 确认"><n-input v-model:value="confirmText" placeholder="APPLY" /></n-form-item></n-gi></n-grid>
+      <n-grid :cols="isMobile ? 1 : 3" :x-gap="12" class="mt-4"><n-gi><n-form-item label="关服倒计时"><n-input-number v-model:value="shutdownSeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="重启等待"><n-input-number v-model:value="restartDelaySeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="输入“应用”确认"><n-input v-model:value="confirmText" placeholder="应用" /></n-form-item></n-gi></n-grid>
       <n-form-item label="广播消息"><n-input v-model:value="restartMessage" /></n-form-item>
       <n-alert type="info">提交后将先保存世界并平滑关服，确认进程退出后才备份和写入；不会同时运行两个 PalServer。</n-alert>
-      <template #footer><n-space justify="end"><n-button @click="showDiff=false">取消</n-button><n-button type="error" :disabled="confirmText !== 'APPLY'" :loading="applying" @click="applyChanges">应用并重启</n-button></n-space></template>
+      <template #footer><n-space justify="end"><n-button @click="showDiff=false">取消</n-button><n-button type="error" :disabled="confirmText !== '应用'" :loading="applying" @click="applyChanges">应用并重启</n-button></n-space></template>
     </n-modal>
   </operations-shell>
 </template>

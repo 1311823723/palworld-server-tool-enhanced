@@ -305,6 +305,11 @@ func createBreedingEvent(tx *bbolt.Tx, events, dedup *bbolt.Bucket, farm databas
 		GuildID: farm.GuildID, EventType: "egg_ready", DedupKey: dedupKey,
 		PreviousCount: previous.Total, CurrentCount: current.Total, SnapshotID: snapshotID, CreatedAt: now.UTC(),
 	}
+	_, displayName, err := resolveBaseDisplayNameTx(tx, farm.BaseID, farm.BaseName)
+	if err != nil {
+		return err
+	}
+	event.BaseDisplayName = displayName
 	eggValueKey := strings.SplitN(eggKey, "|ordinal:", 2)[0]
 	if strings.HasPrefix(eggValueKey, "instance:") {
 		event.EggInstanceID = strings.TrimPrefix(eggValueKey, "instance:")
@@ -364,7 +369,11 @@ func BuildBreedingGameNotifications(events []database.BreedingFarmEvent, message
 		}
 		group := grouped[event.FarmID]
 		if group == nil {
-			group = &farmEvents{baseName: event.BaseName, current: event.CurrentCount, previous: event.PreviousCount}
+			baseName := event.BaseDisplayName
+			if baseName == "" {
+				baseName = event.BaseName
+			}
+			group = &farmEvents{baseName: baseName, current: event.CurrentCount, previous: event.PreviousCount}
 			grouped[event.FarmID] = group
 		}
 		if event.CurrentCount > group.current {
@@ -581,6 +590,11 @@ func ListBreedingFarms(db *bbolt.DB, query BreedingFarmQuery) (BreedingFarmPage,
 			}
 		}
 		for _, farm := range farms {
+			_, displayName, err := resolveBaseDisplayNameTx(tx, farm.BaseID, farm.BaseName)
+			if err != nil {
+				return err
+			}
+			farm.BaseDisplayName = displayName
 			farm.Parents = parentMap[farm.FarmID]
 			if cake, ok := cakeMap[farm.FarmID]; ok {
 				farm.Cake = &cake
@@ -681,6 +695,11 @@ func GetBreedingFarm(db *bbolt.DB, farmID string) (database.BreedingFarmSnapshot
 		if err := json.Unmarshal(bucket.Get([]byte(farmID)), &farm); err != nil {
 			return err
 		}
+		_, displayName, err := resolveBaseDisplayNameTx(tx, farm.BaseID, farm.BaseName)
+		if err != nil {
+			return err
+		}
+		farm.BaseDisplayName = displayName
 		parents, err := listBucket[database.BreedingFarmParent](snapshot.Bucket(breedingParentsBucket))
 		if err != nil {
 			return err
@@ -756,6 +775,11 @@ func ListBreedingEvents(db *bbolt.DB, query BreedingEventQuery) (BreedingEventPa
 			if query.Unread != nil && (!event.Read) != *query.Unread || query.BaseID != "" && event.BaseID != query.BaseID || query.FarmID != "" && event.FarmID != query.FarmID || query.EventType != "" && event.EventType != query.EventType {
 				return nil
 			}
+			_, displayName, err := resolveBaseDisplayNameTx(tx, event.BaseID, event.BaseName)
+			if err != nil {
+				return err
+			}
+			event.BaseDisplayName = displayName
 			result.Items = append(result.Items, event)
 			return nil
 		})

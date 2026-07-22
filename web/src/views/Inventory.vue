@@ -1,7 +1,6 @@
 <script setup>
 import { computed, h, onMounted, ref, watch } from "vue";
 import { NButton, NTag, useMessage } from "naive-ui";
-import { useI18n } from "vue-i18n";
 import ApiService from "@/service/api";
 import OperationsShell from "@/components/OperationsShell.vue";
 import pageStore from "@/stores/model/page";
@@ -10,7 +9,6 @@ import { loadOnce } from "@/utils/enhancedViews";
 
 const api = new ApiService();
 const message = useMessage();
-const { locale } = useI18n();
 const loading = ref(false);
 const items = ref([]);
 const metadata = ref({ warnings: [] });
@@ -28,7 +26,7 @@ const isMobile = computed(() => pageStore().getScreenWidth() < 768);
 let timer;
 const locationCache = new Map();
 
-const localeItems = computed(() => itemsMap[locale.value] || itemsMap.en || []);
+const localeItems = computed(() => itemsMap.zh || []);
 const itemByID = computed(() => Object.fromEntries(localeItems.value.flatMap((item) => [[item.key.toLowerCase(), item], [item.id.toLowerCase(), item]])));
 const labelFor = (id, fallback = "") => itemByID.value[id?.toLowerCase()]?.name || fallback || id;
 const iconModules = import.meta.glob("/src/assets/items/*.webp", { eager: true, query: "?url", import: "default" });
@@ -74,8 +72,8 @@ onMounted(loadSummary);
 </script>
 
 <template>
-  <operations-shell title="全服只读库存" subtitle="聚合玩家与据点容器中的物品；仅管理员可见，不提供移动、删除或修改能力。">
-    <n-alert type="warning" class="mb-4">这是最近一次存档解析的只读快照，不是实时库存。请勿将该接口直接暴露到公网。</n-alert>
+  <operations-shell title="全服库存" subtitle="汇总玩家背包与据点容器中的物品位置。所有数据均为只读，PST 不会移动或删除物品。" :metadata="metadata" :loading="loading" @refresh="loadSummary">
+    <n-alert type="info" :bordered="false" class="mb-4">数据来自最近一次存档解析，默认每 120 秒检查一次；实际更新时间还取决于 Palworld 写入存档的时间。</n-alert>
     <n-alert v-if="metadata.is_stale" type="warning" class="mb-4">存档快照已过期：{{ metadata.save_file_time || metadata.snapshot_time }}</n-alert>
     <n-card size="small">
       <template #header>库存总览 <n-tag size="small" round>{{ total }} 种物品</n-tag></template>
@@ -109,7 +107,7 @@ onMounted(loadSummary);
             <n-list-item v-for="location in locations" :key="location.location_id">
               <n-thing :title="location.container_name || sourceLabel(location.source_type)" :description="`${sourceLabel(location.source_type)} · 槽位 ${location.slot_index}`">
                 <template #header-extra><strong>× {{ location.count }}</strong></template>
-                <n-space size="small"><n-tag v-if="location.player_name" size="small">玩家：{{ location.player_name }}</n-tag><n-tag v-if="location.guild_name" size="small">公会：{{ location.guild_name }}</n-tag><n-tag v-if="location.base_name" size="small">据点：{{ location.base_name }}</n-tag></n-space>
+                <n-space size="small"><n-tag v-if="location.player_name" size="small">玩家：{{ location.player_name }}</n-tag><n-tag v-if="location.guild_name" size="small">公会：{{ location.guild_name }}</n-tag><n-tag v-if="location.base_display_name" size="small">据点：{{ location.base_display_name }}</n-tag></n-space>
               </n-thing>
             </n-list-item>
           </n-list>

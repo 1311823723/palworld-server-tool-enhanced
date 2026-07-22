@@ -361,9 +361,17 @@ func ListBaseCamps(db *bbolt.DB) ([]database.BaseCampSnapshot, database.Snapshot
 			return err
 		}
 		bases, err = listBucket[database.BaseCampSnapshot](snapshot.Bucket(basesBucket))
-		return err
+		if err != nil {
+			return err
+		}
+		for index := range bases {
+			if err := decorateBaseTx(tx, &bases[index]); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
-	sort.Slice(bases, func(i, j int) bool { return bases[i].BaseName < bases[j].BaseName })
+	sort.Slice(bases, func(i, j int) bool { return bases[i].DisplayName < bases[j].DisplayName })
 	return bases, metadata, err
 }
 
@@ -383,7 +391,10 @@ func GetBaseCamp(db *bbolt.DB, baseID string) (database.BaseCampSnapshot, databa
 		if data == nil {
 			return ErrNoRecord
 		}
-		return json.Unmarshal(data, &base)
+		if err := json.Unmarshal(data, &base); err != nil {
+			return err
+		}
+		return decorateBaseTx(tx, &base)
 	})
 	return base, metadata, err
 }
@@ -409,6 +420,13 @@ func ListBaseWorkers(db *bbolt.DB, baseID string) ([]database.BaseWorkerPal, dat
 			}
 			workers = append(workers, worker)
 		}
+		for index := range workers {
+			_, displayName, err := resolveBaseDisplayNameTx(tx, workers[index].BaseID, workers[index].BaseName)
+			if err != nil {
+				return err
+			}
+			workers[index].BaseDisplayName = displayName
+		}
 		return nil
 	})
 	return workers, metadata, err
@@ -427,7 +445,20 @@ func ListContainers(db *bbolt.DB, query InventoryQuery) ([]database.ItemContaine
 			return err
 		}
 		containers, err = listBucket[database.ItemContainer](snapshot.Bucket(containersBucket))
-		return err
+		if err != nil {
+			return err
+		}
+		for index := range containers {
+			if containers[index].BaseID == "" {
+				continue
+			}
+			_, displayName, err := resolveBaseDisplayNameTx(tx, containers[index].BaseID, containers[index].BaseName)
+			if err != nil {
+				return err
+			}
+			containers[index].BaseDisplayName = displayName
+		}
+		return nil
 	})
 	filtered := containers[:0]
 	for _, container := range containers {
@@ -457,7 +488,7 @@ func matchesInventory(location database.InventoryLocation, query InventoryQuery)
 		return true
 	}
 	q := strings.ToLower(query.Q)
-	searchable := []string{location.ItemID, location.ItemName, location.PlayerName, location.GuildName, location.BaseID, location.BaseName, location.ContainerID, location.ContainerName}
+	searchable := []string{location.ItemID, location.ItemName, location.PlayerName, location.GuildName, location.BaseID, location.BaseName, location.BaseDisplayName, location.ContainerID, location.ContainerName}
 	for _, value := range searchable {
 		if strings.Contains(strings.ToLower(value), q) {
 			return true
@@ -485,6 +516,13 @@ func filteredLocations(db *bbolt.DB, query InventoryQuery, itemID string) ([]dat
 			}
 			if itemID != "" && !strings.EqualFold(location.ItemID, itemID) {
 				return nil
+			}
+			if location.BaseID != "" {
+				_, displayName, err := resolveBaseDisplayNameTx(tx, location.BaseID, location.BaseName)
+				if err != nil {
+					return err
+				}
+				location.BaseDisplayName = displayName
 			}
 			if matchesInventory(location, query) {
 				locations = append(locations, location)

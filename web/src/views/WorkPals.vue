@@ -1,17 +1,16 @@
 <script setup>
 import { computed, h, onMounted, ref, watch } from "vue";
 import { NProgress, NTag, useMessage } from "naive-ui";
-import { useI18n } from "vue-i18n";
 import ApiService from "@/service/api";
 import OperationsShell from "@/components/OperationsShell.vue";
 import pageStore from "@/stores/model/page";
 import palMap from "@/assets/pal.json";
 import itemsMap from "@/assets/items.json";
 import { isWorkerAbnormal } from "@/utils/enhancedViews";
+import { localizedPalName } from "@/utils/gameLabels";
 
 const api = new ApiService();
 const message = useMessage();
-const { locale } = useI18n();
 const loading = ref(false);
 const detailLoading = ref(false);
 const bases = ref([]);
@@ -28,8 +27,8 @@ const sort = ref("name");
 const isMobile = computed(() => pageStore().getScreenWidth() < 768);
 let searchTimer;
 
-const displayPal = (id) => palMap[locale.value]?.[id] || palMap.en?.[id] || id || "—";
-const itemIndex = computed(() => Object.fromEntries((itemsMap[locale.value] || itemsMap.en || []).map((item) => [item.key.toLowerCase(), item.name])));
+const displayPal = (id) => localizedPalName(id, palMap, "zh");
+const itemIndex = computed(() => Object.fromEntries((itemsMap.zh || []).map((item) => [item.key.toLowerCase(), item.name])));
 const displayItem = (id) => itemIndex.value[id?.toLowerCase()] || id || "—";
 const percent = (value, maximum) => value == null || !maximum ? null : Math.max(0, Math.min(100, value * 100 / maximum));
 const statusType = (worker) => isAbnormal(worker) ? "error" : "success";
@@ -75,7 +74,7 @@ onMounted(loadBases);
 </script>
 
 <template>
-  <operations-shell title="据点工作帕鲁" subtitle="按据点查看工作帕鲁、健康状态、当前工作与饲料箱；数据来自最近一次存档快照。">
+  <operations-shell title="工作帕鲁" subtitle="按据点查看帕鲁健康、当前工作和饲料储备。数据来自存档解析，不会修改游戏内容。" :metadata="metadata" :loading="loading || detailLoading" @refresh="loadBases">
     <n-alert v-if="metadata.is_stale" type="warning" class="mb-4">快照可能已过期，显示时间：{{ metadata.save_file_time || metadata.snapshot_time }}</n-alert>
     <n-alert v-for="warning in metadata.warnings || []" :key="warning" type="info" class="mb-2">{{ warning }}</n-alert>
     <n-grid :cols="isMobile ? 1 : 4" :x-gap="16" :y-gap="16">
@@ -85,7 +84,7 @@ onMounted(loadBases);
           <n-empty v-else-if="!bases.length" description="尚无据点快照；请先运行一次存档同步" />
           <n-radio-group v-else v-model:value="selectedBase" class="base-list">
             <n-radio-button v-for="base in bases" :key="base.base_id" :value="base.base_id">
-              <span>{{ base.base_name || `据点 ${base.base_id.slice(0, 8)}` }}</span>
+              <span>{{ base.display_name }}</span>
               <small>{{ base.worker_pal_count }}/{{ base.max_worker_pals }} · 异常 {{ base.hungry_pal_count + base.low_sanity_pal_count + base.sick_pal_count + base.down_pal_count }}</small>
             </n-radio-button>
           </n-radio-group>

@@ -84,6 +84,10 @@
       "name": "Lunker",
       "desc": "20% increase to Water attack damage, 20% increase to Ice attack damage, 20% increase to defense."
     },
+    "MiniNushi": {
+      "name": "Whopper",
+      "desc": "5% increase to Water attack damage, 5% increase to Ice attack damage, 5% increase to defense."
+    },
     "SwimSpeed_up_3": {
       "name": "King of the Waves",
       "desc": "50% increase movement speed on water."
@@ -541,6 +545,10 @@
     "Nushi": {
       "name": "湖之主",
       "desc": "水属性攻击伤害增加20%，冰属性攻击伤害增加20%，防御 +20%"
+    },
+    "MiniNushi": {
+      "name": "大猎物",
+      "desc": "水属性攻击伤害增加5%，冰属性攻击伤害增加5%，防御增加5%"
     },
     "SwimSpeed_up_3": {
       "name": "破浪王者",
@@ -1003,6 +1011,10 @@
     "Nushi": {
       "name": "ヌシ",
       "desc": "水属性攻撃ダメージ増加20%，氷属性攻撃ダメージ増加20%，防御 +20%"
+    },
+    "MiniNushi": {
+      "name": "大物",
+      "desc": "水属性攻撃ダメージ増加5%、氷属性攻撃ダメージ増加5%、防御 +5%"
     },
     "SwimSpeed_up_3": {
       "name": "波乗り王",
