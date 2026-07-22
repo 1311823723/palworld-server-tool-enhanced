@@ -57,6 +57,7 @@ func PlayerSync(db *bbolt.DB) {
 	onlinePlayers, err := tool.ShowPlayers()
 	if err != nil {
 		logger.Errorf("%v\n", err)
+		return
 	}
 	err = service.PutPlayersOnline(db, onlinePlayers)
 	if err != nil {

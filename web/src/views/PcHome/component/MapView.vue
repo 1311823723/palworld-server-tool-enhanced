@@ -632,6 +632,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped lang="less">
+.map-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  background: #dfe9e4;
+}
+
 .leaflet-container {
   background: #102536;
   outline: 0;

@@ -43,23 +43,26 @@ func getPlayerActionUserId(player database.Player) string {
 //	@Failure		400	{object}	ErrorResponse
 //	@Router			/api/online_player [get]
 func listOnlinePlayers(c *gin.Context) {
-	onlinePLayers, err := tool.ShowPlayers()
+	onlinePlayers, err := tool.ShowPlayers()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	service.PutPlayersOnline(database.GetDB(), onlinePLayers)
+	if err := service.PutPlayersOnline(database.GetDB(), onlinePlayers); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	// 未登录隐藏敏感字段
 	if !c.GetBool("loggedIn") {
-		for i := range onlinePLayers {
-			onlinePLayers[i].Ip = ""
-			if onlinePLayers[i].UserId != "" {
-				onlinePLayers[i].UserId = strings.Split(onlinePLayers[i].UserId, "_")[0] + "_"
+		for i := range onlinePlayers {
+			onlinePlayers[i].Ip = ""
+			if onlinePlayers[i].UserId != "" {
+				onlinePlayers[i].UserId = strings.Split(onlinePlayers[i].UserId, "_")[0] + "_"
 			}
-			onlinePLayers[i].SteamId = ""
+			onlinePlayers[i].SteamId = ""
 		}
 	}
-	c.JSON(http.StatusOK, onlinePLayers)
+	c.JSON(http.StatusOK, onlinePlayers)
 }
 
 // putPlayers godoc

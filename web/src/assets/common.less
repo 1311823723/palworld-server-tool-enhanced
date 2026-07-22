@@ -17,7 +17,8 @@ a {
 }
 
 html {
-  width: 100vw;
+  width: 100%;
+  min-height: 100%;
   font-size: 16px;
   background: #fff;
   touch-action: manipulation;
@@ -27,14 +28,15 @@ html {
   // user-select: none;
   -webkit-text-size-adjust: 100%;
   /* 禁用IOS文字大小随屏幕大小自适应 */
-  height: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 body {
+  min-width: 320px;
+  min-height: 100dvh;
   overflow-x: hidden;
-  overflow-y: auto;
-  overflow: overlay; //将滚动条背景改为透明
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif !important;
   text-rendering: optimizeLegibility;
 }
@@ -51,28 +53,48 @@ select {
   outline-offset: 2px;
 }
 
-// 滚动条
-body::-webkit-scrollbar {
+// 全局滚动条：页面、侧栏、抽屉和表格等滚动容器使用一致样式
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(47, 125, 104, 0.62) rgba(47, 125, 104, 0.08);
+}
+
+*::-webkit-scrollbar {
   width: 10px;
   height: 8px;
-  background: rgba(0, 0, 0, 0);
+  background: rgba(47, 125, 104, 0.06);
 }
 
-// 滚动槽
-body::-webkit-scrollbar-track {
-  background-color: transparent;
+*::-webkit-scrollbar-track {
+  background-color: rgba(47, 125, 104, 0.06);
 }
 
-/* 滚动条滑块 */
-body::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.5);
+*::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  background-color: rgba(47, 125, 104, 0.62);
   border-radius: 100px;
   border: 2px solid transparent;
-  background-clip: content-box; //内容区裁剪
+  background-clip: content-box;
 
   &:hover {
     border: 2px solid transparent;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(39, 105, 87, 0.86);
+    background-clip: content-box;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  * {
+    scrollbar-color: rgba(111, 190, 163, 0.72) rgba(111, 190, 163, 0.1);
+  }
+
+  *::-webkit-scrollbar,
+  *::-webkit-scrollbar-track {
+    background: rgba(111, 190, 163, 0.08);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: rgba(111, 190, 163, 0.72);
     background-clip: content-box;
   }
 }

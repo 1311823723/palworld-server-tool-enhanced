@@ -21,7 +21,12 @@ func PutPlayers(db *bbolt.DB, players []database.Player) error {
 			if err := json.Unmarshal(v, &player); err != nil {
 				return err
 			}
-			existingPlayers[player.PlayerUid] = player
+			uid := player.PlayerUid
+			if uid == "" {
+				uid = string(k)
+				player.PlayerUid = uid
+			}
+			existingPlayers[uid] = player
 			return nil
 		})
 		if err != nil {
@@ -31,6 +36,9 @@ func PutPlayers(db *bbolt.DB, players []database.Player) error {
 		// build new players map
 		newPlayers := make(map[string]database.Player)
 		for _, p := range players {
+			if p.PlayerUid == "" {
+				return errors.New("player_uid is required")
+			}
 			newPlayers[p.PlayerUid] = p
 		}
 
@@ -46,6 +54,11 @@ func PutPlayers(db *bbolt.DB, players []database.Player) error {
 				p.Ping = existingPlayer.Ping
 				p.LocationX = existingPlayer.LocationX
 				p.LocationY = existingPlayer.LocationY
+				p.IsOnline = existingPlayer.IsOnline
+				p.OnlineSince = existingPlayer.OnlineSince
+				p.OnlineLastSeenAt = existingPlayer.OnlineLastSeenAt
+				p.CurrentSessionSeconds = existingPlayer.CurrentSessionSeconds
+				p.TotalOnlineSeconds = existingPlayer.TotalOnlineSeconds
 			}
 
 			if p.SaveLastOnline != "" {
@@ -77,9 +90,18 @@ func PutPlayers(db *bbolt.DB, players []database.Player) error {
 }
 
 func PutPlayersOnline(db *bbolt.DB, players []database.OnlinePlayer) error {
+	return putPlayersOnlineAt(db, players, time.Now().UTC())
+}
+
+func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.Time) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("players"))
+		onlinePlayerUIDs := make(map[string]struct{}, len(players))
 		for _, p := range players {
+			if p.PlayerUid == "" {
+				continue
+			}
+			onlinePlayerUIDs[p.PlayerUid] = struct{}{}
 			existingPlayerData := b.Get([]byte(p.PlayerUid))
 			var player database.Player
 			if existingPlayerData == nil {
@@ -111,7 +133,15 @@ func PutPlayersOnline(db *bbolt.DB, players []database.OnlinePlayer) error {
 			player.LocationY = p.LocationY
 			player.Level = p.Level
 			player.BuildingCount = p.BuildingCount
-			player.LastOnline = time.Now()
+			player.LastOnline = now
+			if !player.IsOnline || player.OnlineSince.IsZero() {
+				player.OnlineSince = now
+			} else if !player.OnlineLastSeenAt.IsZero() && now.After(player.OnlineLastSeenAt) {
+				player.TotalOnlineSeconds += int64(now.Sub(player.OnlineLastSeenAt) / time.Second)
+			}
+			player.IsOnline = true
+			player.OnlineLastSeenAt = now
+			player.CurrentSessionSeconds = durationSeconds(player.OnlineSince, now)
 
 			v, err := json.Marshal(player)
 			if err != nil {
@@ -121,12 +151,62 @@ func PutPlayersOnline(db *bbolt.DB, players []database.OnlinePlayer) error {
 				return err
 			}
 		}
+
+		offlineUpdates := make(map[string][]byte)
+		if err := b.ForEach(func(k, v []byte) error {
+			if _, online := onlinePlayerUIDs[string(k)]; online {
+				return nil
+			}
+			var player database.Player
+			if err := json.Unmarshal(v, &player); err != nil {
+				return err
+			}
+			if !player.IsOnline {
+				return nil
+			}
+			player.IsOnline = false
+			player.OnlineSince = time.Time{}
+			player.OnlineLastSeenAt = time.Time{}
+			player.CurrentSessionSeconds = 0
+			encoded, err := json.Marshal(player)
+			if err != nil {
+				return err
+			}
+			offlineUpdates[string(k)] = encoded
+			return nil
+		}); err != nil {
+			return err
+		}
+		for key, value := range offlineUpdates {
+			if err := b.Put([]byte(key), value); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 }
 
+func durationSeconds(start, end time.Time) int64 {
+	if start.IsZero() || !end.After(start) {
+		return 0
+	}
+	return int64(end.Sub(start) / time.Second)
+}
+
+func refreshPlayerDuration(player *database.TersePlayer, now time.Time) {
+	if !player.IsOnline {
+		player.CurrentSessionSeconds = 0
+		return
+	}
+	player.CurrentSessionSeconds = durationSeconds(player.OnlineSince, now)
+	if !player.OnlineLastSeenAt.IsZero() && now.After(player.OnlineLastSeenAt) {
+		player.TotalOnlineSeconds += durationSeconds(player.OnlineLastSeenAt, now)
+	}
+}
+
 func ListPlayers(db *bbolt.DB) ([]database.TersePlayer, error) {
 	players := make([]database.TersePlayer, 0)
+	now := time.Now().UTC()
 	err := db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("players"))
 		return b.ForEach(func(k, v []byte) error {
@@ -137,6 +217,7 @@ func ListPlayers(db *bbolt.DB) ([]database.TersePlayer, error) {
 			if err := json.Unmarshal(v, &player); err != nil {
 				return err
 			}
+			refreshPlayerDuration(&player, now)
 			players = append(players, player)
 			return nil
 		})
@@ -158,6 +239,7 @@ func GetPlayer(db *bbolt.DB, playerUid string) (database.Player, error) {
 		if err := json.Unmarshal(v, &player); err != nil {
 			return err
 		}
+		refreshPlayerDuration(&player.TersePlayer, time.Now().UTC())
 		return nil
 	})
 	if err != nil {
