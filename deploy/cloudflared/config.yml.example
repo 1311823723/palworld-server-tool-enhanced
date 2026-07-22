@@ -1,0 +1,9 @@
+# 复制为 cloudflared/config.yml 后填写自己的 Tunnel ID、凭据文件和域名。
+# 不要把 credentials-file 指向 Git 仓库，也不要提交 json 凭据文件。
+tunnel: YOUR_TUNNEL_ID
+credentials-file: C:\\cloudflared\\YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: pst.example.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404

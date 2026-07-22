@@ -72,3 +72,12 @@ export const localizedSkillName = (skill, locale, skillMap) =>
   skillAliases[skill]?.[locale] ||
   skillAliases[skill]?.en ||
   skill;
+
+export const localizedPalName = (palId, palMap, locale = "zh") => {
+  if (!palId) return "—";
+  const entries = palMap?.[locale] || palMap?.zh || {};
+  if (entries[palId]) return entries[palId];
+  const normalized = String(palId).toLocaleLowerCase("en-US");
+  const matchedKey = Object.keys(entries).find((key) => key.toLocaleLowerCase("en-US") === normalized);
+  return matchedKey ? entries[matchedKey] : palId;
+};

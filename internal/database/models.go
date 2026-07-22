@@ -47,6 +47,7 @@ type BreedingFarmSnapshot struct {
 	FarmID               string                     `json:"farm_id"`
 	BaseID               string                     `json:"base_id"`
 	BaseName             string                     `json:"base_name"`
+	BaseDisplayName      string                     `json:"base_display_name,omitempty"`
 	GuildID              string                     `json:"guild_id"`
 	GuildName            string                     `json:"guild_name"`
 	MapObjectInstanceID  string                     `json:"map_object_instance_id"`
@@ -115,20 +116,21 @@ type BreedingFarmEgg struct {
 }
 
 type BreedingFarmEvent struct {
-	EventID       string    `json:"event_id"`
-	FarmID        string    `json:"farm_id"`
-	BaseID        string    `json:"base_id"`
-	BaseName      string    `json:"base_name"`
-	GuildID       string    `json:"guild_id"`
-	EventType     string    `json:"event_type"`
-	DedupKey      string    `json:"dedup_key,omitempty"`
-	PreviousCount int64     `json:"previous_count"`
-	CurrentCount  int64     `json:"current_count"`
-	EggInstanceID string    `json:"egg_instance_id,omitempty"`
-	EggItemID     *string   `json:"egg_item_id"`
-	SnapshotID    string    `json:"snapshot_id"`
-	Read          bool      `json:"read"`
-	CreatedAt     time.Time `json:"created_at"`
+	EventID         string    `json:"event_id"`
+	FarmID          string    `json:"farm_id"`
+	BaseID          string    `json:"base_id"`
+	BaseName        string    `json:"base_name"`
+	BaseDisplayName string    `json:"base_display_name,omitempty"`
+	GuildID         string    `json:"guild_id"`
+	EventType       string    `json:"event_type"`
+	DedupKey        string    `json:"dedup_key,omitempty"`
+	PreviousCount   int64     `json:"previous_count"`
+	CurrentCount    int64     `json:"current_count"`
+	EggInstanceID   string    `json:"egg_instance_id,omitempty"`
+	EggItemID       *string   `json:"egg_item_id"`
+	SnapshotID      string    `json:"snapshot_id"`
+	Read            bool      `json:"read"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type SnapshotLocation struct {
@@ -140,6 +142,8 @@ type SnapshotLocation struct {
 type BaseCampSnapshot struct {
 	BaseID                 string           `json:"base_id"`
 	BaseName               string           `json:"base_name"`
+	CustomName             string           `json:"custom_name,omitempty"`
+	DisplayName            string           `json:"display_name"`
 	GuildID                string           `json:"guild_id"`
 	GuildName              string           `json:"guild_name"`
 	BaseCampLevel          int32            `json:"base_camp_level"`
@@ -172,23 +176,25 @@ type BaseWorkerPal struct {
 	OwnerPlayerName     string          `json:"owner_player_name"`
 	BaseID              string          `json:"base_id"`
 	BaseName            string          `json:"base_name"`
+	BaseDisplayName     string          `json:"base_display_name,omitempty"`
 	GuildID             string          `json:"guild_id"`
 	GuildName           string          `json:"guild_name"`
 	DataAvailability    map[string]bool `json:"data_availability"`
 }
 
 type ItemContainer struct {
-	ContainerID   string `json:"container_id"`
-	SourceType    string `json:"source_type"`
-	ContainerType string `json:"container_type"`
-	ContainerName string `json:"container_name"`
-	PlayerUID     string `json:"player_uid,omitempty"`
-	PlayerName    string `json:"player_name,omitempty"`
-	GuildID       string `json:"guild_id,omitempty"`
-	GuildName     string `json:"guild_name,omitempty"`
-	BaseID        string `json:"base_id,omitempty"`
-	BaseName      string `json:"base_name,omitempty"`
-	Parsed        bool   `json:"parsed"`
+	ContainerID     string `json:"container_id"`
+	SourceType      string `json:"source_type"`
+	ContainerType   string `json:"container_type"`
+	ContainerName   string `json:"container_name"`
+	PlayerUID       string `json:"player_uid,omitempty"`
+	PlayerName      string `json:"player_name,omitempty"`
+	GuildID         string `json:"guild_id,omitempty"`
+	GuildName       string `json:"guild_name,omitempty"`
+	BaseID          string `json:"base_id,omitempty"`
+	BaseName        string `json:"base_name,omitempty"`
+	BaseDisplayName string `json:"base_display_name,omitempty"`
+	Parsed          bool   `json:"parsed"`
 }
 
 type InventoryLocation struct {
@@ -204,6 +210,7 @@ type InventoryLocation struct {
 	GuildName            string `json:"guild_name,omitempty"`
 	BaseID               string `json:"base_id,omitempty"`
 	BaseName             string `json:"base_name,omitempty"`
+	BaseDisplayName      string `json:"base_display_name,omitempty"`
 	ContainerID          string `json:"container_id"`
 	ContainerType        string `json:"container_type"`
 	ContainerName        string `json:"container_name"`
@@ -237,6 +244,19 @@ type BaseCampOverview struct {
 	FeedBoxCount       int       `json:"feed_box_count"`
 	FeedItemTypeCount  int       `json:"feed_item_type_count"`
 	FeedTotalItemCount int64     `json:"feed_total_item_count"`
+}
+
+type BaseAlias struct {
+	BaseID    string    `json:"base_id"`
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type BaseAliasOverview struct {
+	BaseAlias
+	Active      bool   `json:"active"`
+	BaseName    string `json:"base_name,omitempty"`
+	DisplayName string `json:"display_name"`
 }
 
 type FeedBox struct {

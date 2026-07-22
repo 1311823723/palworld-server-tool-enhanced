@@ -90,6 +90,16 @@ func InitDB() *bbolt.DB {
 	if err != nil {
 		logger.Panic(err)
 	}
+	// Base aliases are stored independently from save snapshots. This keeps
+	// administrator-defined names stable across snapshot replacement and PST
+	// restarts without ever modifying the Palworld save data.
+	err = db_.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("base_aliases"))
+		return err
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
 	return db_
 }
 

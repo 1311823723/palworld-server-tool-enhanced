@@ -339,7 +339,7 @@ onBeforeUnmount(() => {
     :positive-text="$t('serverProcess.restart')"
     :negative-text="$t('button.cancel')"
     :positive-button-props="{
-      disabled: restartForm.confirmation !== 'RESTART',
+      disabled: restartForm.confirmation !== '重启',
       loading: action === 'restart',
     }"
     @positive-click="submitRestart"
@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
       <n-form-item :label="$t('serverProcess.confirmRestart')"
         ><n-input
           v-model:value="restartForm.confirmation"
-          placeholder="RESTART"
+          placeholder="重启"
       /></n-form-item>
     </n-form>
   </n-modal>
@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
     :positive-text="$t('serverProcess.stop')"
     :negative-text="$t('button.cancel')"
     :positive-button-props="{
-      disabled: stopForm.confirmation !== 'SHUTDOWN',
+      disabled: stopForm.confirmation !== '停服',
       loading: action === 'stop',
       type: 'error',
     }"
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
         ><n-switch v-model:value="stopForm.keep_stopped"
       /></n-form-item>
       <n-form-item :label="$t('serverProcess.confirmStop')"
-        ><n-input v-model:value="stopForm.confirmation" placeholder="SHUTDOWN"
+        ><n-input v-model:value="stopForm.confirmation" placeholder="停服"
       /></n-form-item>
     </n-form>
   </n-modal>

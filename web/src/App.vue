@@ -1,77 +1,39 @@
 <script setup>
-import { zhCN, dateZhCN, jaJP, dateJaJP, darkTheme } from "naive-ui";
+import { zhCN, dateZhCN, darkTheme } from "naive-ui";
 import pageStore from "@/stores/model/page.js";
-import { onMounted } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 
-const isDarkMode = ref(
-  window.matchMedia("(prefers-color-scheme: dark)").matches
-);
-
-const updateDarkMode = (e) => {
-  isDarkMode.value = e.matches;
-};
-
+localStorage.setItem("locale", "zh");
+const isDarkMode = ref(window.matchMedia("(prefers-color-scheme: dark)").matches);
+const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+const updateDarkMode = (event) => { isDarkMode.value = event.matches; };
+const updateScreenWidth = () => pageStore().setScreenWidth(document.documentElement.clientWidth || window.innerWidth);
 const themeOverrides = {
   common: {
-    primaryColor: "#4098fc",
-    primaryColorHover: "#4098fc",
+    primaryColor: "#2f7d68",
+    primaryColorHover: "#3d9279",
+    primaryColorPressed: "#276957",
+    primaryColorSuppl: "#3d9279",
+    borderRadius: "9px",
   },
 };
 
-const locale = ref(null);
-const uiLocale = ref(null);
-const uiDateLocale = ref(null);
-
-// 移动端适配
-// 监听窗口宽度变化
-let getScreenWidth = function () {
-  let scrollWidth = document.documentElement.clientWidth || window.innerWidth;
-  pageStore().setScreenWidth(scrollWidth);
-};
-
 onMounted(() => {
-  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   mediaQuery.addEventListener("change", updateDarkMode);
-  isDarkMode.value = mediaQuery.matches;
-  getScreenWidth();
-  window.onresize = function () {
-    getScreenWidth();
-  };
-
-  let localLocale = localStorage.getItem("locale");
-  if (localLocale) {
-    locale.value = localLocale;
-    if (locale.value == "zh") {
-      uiLocale.value = zhCN;
-      uiDateLocale.value = dateZhCN;
-    } else if (locale.value == "ja") {
-      uiLocale.value = jaJP;
-      uiDateLocale.value = dateJaJP;
-    } else if (locale.value == "en") {
-      uiLocale.value = null;
-      uiDateLocale.value = null;
-    }
-  } else {
-    localStorage.setItem("locale", "zh");
-    locale.value = "zh";
-    uiLocale.value = zhCN;
-    uiDateLocale.value = dateZhCN;
-  }
+  window.addEventListener("resize", updateScreenWidth, { passive: true });
+  updateScreenWidth();
+});
+onBeforeUnmount(() => {
+  mediaQuery.removeEventListener("change", updateDarkMode);
+  window.removeEventListener("resize", updateScreenWidth);
 });
 </script>
 
 <template>
-  <n-config-provider
-    :locale="uiLocale"
-    :date-locale="uiDateLocale"
-    :theme-overrides="themeOverrides"
-    :theme="isDarkMode ? darkTheme : null"
-  >
+  <n-config-provider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides" :theme="isDarkMode ? darkTheme : null">
     <n-dialog-provider>
       <n-notification-provider>
-        <n-message-provider>
-          <router-view />
-        </n-message-provider>
+        <n-message-provider><router-view /></n-message-provider>
       </n-notification-provider>
     </n-dialog-provider>
   </n-config-provider>

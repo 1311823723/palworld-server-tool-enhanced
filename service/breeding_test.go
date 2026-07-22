@@ -78,8 +78,8 @@ func TestBreedingMonitorCreatesOnlyNewEggEvents(t *testing.T) {
 func TestBuildBreedingGameNotificationsGroupsEventsByFarm(t *testing.T) {
 	events := []database.BreedingFarmEvent{
 		{EventID: "event-2", FarmID: "farm-b", BaseName: "第二据点", EventType: "egg_ready", PreviousCount: 0, CurrentCount: 1},
-		{EventID: "event-1", FarmID: "farm-a", BaseName: "第一\n据点", EventType: "egg_ready", PreviousCount: 1, CurrentCount: 3},
-		{EventID: "event-3", FarmID: "farm-a", BaseName: "第一\n据点", EventType: "egg_ready", PreviousCount: 1, CurrentCount: 3},
+		{EventID: "event-1", FarmID: "farm-a", BaseName: "存档原名", BaseDisplayName: "第一\n据点", EventType: "egg_ready", PreviousCount: 1, CurrentCount: 3},
+		{EventID: "event-3", FarmID: "farm-a", BaseName: "存档原名", BaseDisplayName: "第一\n据点", EventType: "egg_ready", PreviousCount: 1, CurrentCount: 3},
 	}
 	notifications := BuildBreedingGameNotifications(events, "【配种提醒】{base} 新增 {new_count} 枚，现有 {count} 枚")
 	if len(notifications) != 2 {

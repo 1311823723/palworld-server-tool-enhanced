@@ -55,6 +55,23 @@ func Logger() gin.HandlerFunc {
 	})
 }
 
+// SecurityHeaders prevents browsers and intermediate proxies from caching
+// player, inventory and server-control responses when PST is published
+// through a tunnel or reverse proxy.
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "SAMEORIGIN")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.Header("Cache-Control", "no-store, max-age=0")
+			c.Header("Pragma", "no-cache")
+		}
+		c.Next()
+	}
+}
+
 func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 	RegisterRouterWithSupervisor(r, onConfigInitialized, nil)
 }
@@ -64,7 +81,7 @@ func RegisterRouterWithSupervisor(r *gin.Engine, onConfigInitialized func(), pro
 }
 
 func RegisterRouterWithManagers(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager) {
-	r.Use(Logger(), gin.Recovery())
+	r.Use(Logger(), gin.Recovery(), SecurityHeaders())
 
 	r.POST("/api/login", loginHandler)
 	r.GET("/api/config/status", getConfigStatus)
@@ -108,6 +125,9 @@ func RegisterRouterWithManagers(r *gin.Engine, onConfigInitialized func(), proce
 		authGroup.POST("/server/restart", restartServer(processManager))
 		authGroup.POST("/server/stop", stopServer(processManager))
 		authGroup.POST("/server/watchdog", setServerWatchdog(processManager))
+		authGroup.GET("/base-camps/aliases", listBaseAliases)
+		authGroup.PUT("/base-camps/:base_id/alias", putBaseAlias)
+		authGroup.DELETE("/base-camps/:base_id/alias", deleteBaseAlias)
 		authGroup.PUT("/player", putPlayers)
 		authGroup.POST("/player/:player_uid/kick", kickPlayer)
 		authGroup.POST("/player/:player_uid/ban", banPlayer)

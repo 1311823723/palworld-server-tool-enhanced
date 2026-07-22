@@ -4,7 +4,7 @@ import {
   SupervisedUserCircleRound,
 } from "@vicons/material";
 import { ChevronsLeft } from "@vicons/tabler";
-import { GameController, LanguageSharp } from "@vicons/ionicons5";
+import { GameController } from "@vicons/ionicons5";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
@@ -47,7 +47,6 @@ const playerInfo = ref({});
 const playerPalsList = ref([]);
 const currentPlayerPalsList = ref([]);
 const guildInfo = ref({});
-const languageOptions = ref([]);
 
 const contentRef = ref(null);
 
@@ -63,23 +62,6 @@ const isDarkMode = ref(
 
 const updateDarkMode = (e) => {
   isDarkMode.value = e.matches;
-};
-
-const handleSelectLanguage = (key) => {
-  message.info(t("message.changelanguage"));
-  if (key === "zh") {
-    localStorage.setItem("locale", "zh");
-    // locale.value = "zh";
-  } else if (key === "ja") {
-    localStorage.setItem("locale", "ja");
-    // locale.value = "ja";
-  } else {
-    localStorage.setItem("locale", "en");
-    // locale.value = "en";
-  }
-  setTimeout(() => {
-    location.reload();
-  }, 1000);
 };
 
 // get data
@@ -392,23 +374,6 @@ const isTokenExpired = (token) => {
 
 onMounted(async () => {
   locale.value = localStorage.getItem("locale");
-  languageOptions.value = [
-    {
-      label: "简体中文",
-      key: "zh",
-      disabled: locale.value == "zh",
-    },
-    {
-      label: "English",
-      key: "en",
-      disabled: locale.value == "en",
-    },
-    {
-      label: "日本語",
-      key: "ja",
-      disabled: locale.value == "ja",
-    },
-  ];
   localeLowerPalMap.value = Object.keys(palMap[locale.value]).reduce(
     (acc, key) => {
       acc[key.toLowerCase()] = palMap[locale.value][key];
@@ -465,25 +430,6 @@ onBeforeUnmount(() => {
           }}</n-tag>
         </n-space>
         <n-space justify="end" class="flex items-center">
-          <n-dropdown
-            trigger="hover"
-            :options="languageOptions"
-            @select="handleSelectLanguage"
-          >
-            <n-button
-              type="default"
-              secondary
-              strong
-              circle
-              size="small"
-              :aria-label="$t('button.language')"
-            >
-              <template #icon>
-                <n-icon><LanguageSharp /></n-icon>
-              </template>
-            </n-button>
-          </n-dropdown>
-
           <n-button
             type="primary"
             size="small"
@@ -594,6 +540,9 @@ onBeforeUnmount(() => {
                 </n-button>
                 <n-button v-if="!isShowDetail" class="flex-1" secondary strong @click="router.push('/work-pals')">
                   {{ $t("enhanced.workPals") }}
+                </n-button>
+                <n-button v-if="!isShowDetail" class="flex-1" secondary strong @click="router.push('/base-camps')">
+                  {{ $t("enhanced.baseCamps") }}
                 </n-button>
               </n-button-group>
             </div>

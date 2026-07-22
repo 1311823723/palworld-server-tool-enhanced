@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { statusPointTranslationKey } from "./gameLabels.js";
+import {
+  localizedPalName,
+  localizedSkillName,
+  statusPointTranslationKey,
+} from "./gameLabels.js";
 
 const currentStatusPointKeys = {
   ジャンプ力: "jumpPower",
@@ -43,4 +47,16 @@ test("normalizes legacy and English status point aliases", () => {
 
 test("keeps unknown status point keys available for raw fallback", () => {
   assert.equal(statusPointTranslationKey("FutureStatKey"), null);
+});
+
+test("matches Pal identifiers case-insensitively for Chinese save display", () => {
+  const palMap = { zh: { BOSS_Anubis: "阿努比斯（BOSS）", SheepBall: "棉悠悠" } };
+  assert.equal(localizedPalName("Boss_Anubis", palMap), "阿努比斯（BOSS）");
+  assert.equal(localizedPalName("Sheepball", palMap), "棉悠悠");
+  assert.equal(localizedPalName("FuturePal", palMap), "FuturePal");
+});
+
+test("uses Chinese names for newly observed passive skill identifiers", () => {
+  const skillMap = { zh: { MiniNushi: { name: "大猎物" } } };
+  assert.equal(localizedSkillName("MiniNushi", "zh", skillMap), "大猎物");
 });

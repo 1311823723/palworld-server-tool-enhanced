@@ -14,7 +14,7 @@ const shutdownMessage = ref("");
 const confirmation = ref("");
 const submitting = ref(false);
 const canSubmit = computed(
-  () => shutdownMessage.value.trim() && confirmation.value === "SHUTDOWN"
+  () => shutdownMessage.value.trim() && confirmation.value === "停服"
 );
 
 const close = () => emit("update:show", false);

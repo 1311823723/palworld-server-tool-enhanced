@@ -15,6 +15,21 @@ const router = createRouter({
       component: () => import("@/views/WorkPals.vue"),
     },
     {
+      path: "/players",
+      name: "players",
+      component: () => import("@/views/Players.vue"),
+    },
+    {
+      path: "/pal-management",
+      name: "pal-management",
+      component: () => import("@/views/PalManagement.vue"),
+    },
+    {
+      path: "/base-camps",
+      name: "base-camps",
+      component: () => import("@/views/BaseCamps.vue"),
+    },
+    {
       path: "/inventory",
       name: "inventory",
       meta: { requiresAdmin: true },

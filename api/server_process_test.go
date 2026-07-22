@@ -95,6 +95,24 @@ func TestBreedingFarmAPIRequiresAdministratorJWT(t *testing.T) {
 	}
 }
 
+func TestBaseAliasAPIRequiresAdministratorJWT(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/base-camps/aliases"},
+		{http.MethodPut, "/api/base-camps/base-a/alias"},
+		{http.MethodDelete, "/api/base-camps/base-a/alias"},
+	} {
+		response := performJSONRequest(router, request.method, request.path, map[string]any{"name": "测试据点"}, "")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s %s status code = %d, want 401", request.method, request.path, response.Code)
+		}
+	}
+}
+
 func TestBreedingNotificationConfigDoesNotLeakSecretsAndConfirmsAllFarms(t *testing.T) {
 	router, token, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
 	defer store.Close()
