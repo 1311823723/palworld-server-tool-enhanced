@@ -8,6 +8,7 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/zaigie/palworld-server-tool/internal/auth"
+	"github.com/zaigie/palworld-server-tool/internal/worldsettings"
 )
 
 type SuccessResponse struct {
@@ -55,6 +56,14 @@ func Logger() gin.HandlerFunc {
 }
 
 func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
+	RegisterRouterWithSupervisor(r, onConfigInitialized, nil)
+}
+
+func RegisterRouterWithSupervisor(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager) {
+	RegisterRouterWithManagers(r, onConfigInitialized, processManager, nil)
+}
+
+func RegisterRouterWithManagers(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager) {
 	r.Use(Logger(), gin.Recovery())
 
 	r.POST("/api/login", loginHandler)
@@ -73,6 +82,11 @@ func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 		anonymousGroup.GET("/server/metrics", getServerMetrics)
 		anonymousGroup.GET("/guild", listGuilds)
 		anonymousGroup.GET("/guild/:admin_player_uid", getGuild)
+		anonymousGroup.GET("/base-camps", listBaseCampsWithSettings(settingsManager))
+		anonymousGroup.GET("/base-camps/:base_id", getBaseCampWithSettings(settingsManager))
+		anonymousGroup.GET("/base-camps/:base_id/work-pals", listBaseWorkers)
+		anonymousGroup.GET("/base-camps/:base_id/feed-boxes", listFeedBoxes)
+		anonymousGroup.GET("/inventory/public-summary", publicInventorySummary)
 	}
 	// 根据登录状态返回不同结果
 	OptionalGroup := apiGroup.Group("")
@@ -88,11 +102,33 @@ func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 	{
 		authGroup.POST("/server/broadcast", publishBroadcast)
 		authGroup.POST("/server/shutdown", shutdownServer)
+		authGroup.GET("/server/process", getServerProcess(processManager))
+		authGroup.POST("/server/save", saveServer(processManager))
+		authGroup.POST("/server/start", startServer(processManager))
+		authGroup.POST("/server/restart", restartServer(processManager))
+		authGroup.POST("/server/stop", stopServer(processManager))
+		authGroup.POST("/server/watchdog", setServerWatchdog(processManager))
 		authGroup.PUT("/player", putPlayers)
 		authGroup.POST("/player/:player_uid/kick", kickPlayer)
 		authGroup.POST("/player/:player_uid/ban", banPlayer)
 		authGroup.POST("/player/:player_uid/unban", unbanPlayer)
 		authGroup.PUT("/guild", putGuilds)
+		authGroup.PUT("/snapshot", putSnapshot)
+		authGroup.GET("/inventory/summary", inventorySummary)
+		authGroup.GET("/inventory/items/:item_id/locations", inventoryItemLocations)
+		authGroup.GET("/inventory/containers", inventoryContainers)
+		authGroup.GET("/breeding-farms/capabilities", getBreedingCapabilities)
+		authGroup.GET("/breeding-farms/notification-config", getBreedingNotificationConfig)
+		authGroup.PUT("/breeding-farms/notification-config", putBreedingNotificationConfig)
+		authGroup.GET("/breeding-farms/events", listBreedingEvents)
+		authGroup.GET("/breeding-farms/events/unread", listUnreadBreedingEvents)
+		authGroup.POST("/breeding-farms/events/read-all", markAllBreedingEventsRead)
+		authGroup.POST("/breeding-farms/events/:event_id/read", markBreedingEventRead)
+		authGroup.GET("/breeding-farms", listBreedingFarms)
+		authGroup.GET("/breeding-farms/:farm_id", getBreedingFarm)
+		authGroup.GET("/breeding-farms/:farm_id/parents", getBreedingParents)
+		authGroup.GET("/breeding-farms/:farm_id/cakes", getBreedingCakes)
+		authGroup.GET("/breeding-farms/:farm_id/eggs", getBreedingEggs)
 		authGroup.POST("/sync", syncData)
 		authGroup.GET("/whitelist", listWhite)
 		authGroup.POST("/whitelist", addWhite)
@@ -113,9 +149,16 @@ func RegisterRouter(r *gin.Engine, onConfigInitialized func()) {
 		authGroup.GET("/backup/:backup_id", downloadBackup)
 		authGroup.DELETE("/backup/:backup_id", deleteBackup)
 		authGroup.GET("/config", getConfig)
-		authGroup.PUT("/config", putConfig)
+		authGroup.PUT("/config", putConfigWithSupervisor(processManager))
 		authGroup.GET("/config/directories", listDirectories)
 		authGroup.POST("/config/test/save", testSaveConfig)
 		authGroup.POST("/config/test/rcon", testRconConfig)
+		authGroup.GET("/world-settings/schema", getWorldSettingsSchema(settingsManager))
+		authGroup.GET("/world-settings", getWorldSettings(settingsManager))
+		authGroup.POST("/world-settings/validate", validateWorldSettings(settingsManager))
+		authGroup.POST("/world-settings/apply", applyWorldSettings(settingsManager))
+		authGroup.GET("/world-settings/backups", listWorldSettingsBackups(settingsManager))
+		authGroup.POST("/world-settings/backups/:backup_id/restore", restoreWorldSettingsBackup(settingsManager))
+		authGroup.DELETE("/world-settings/backups/:backup_id", deleteWorldSettingsBackup(settingsManager))
 	}
 }

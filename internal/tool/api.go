@@ -13,7 +13,7 @@ type Tag struct {
 }
 
 func GetLatestTag() (string, error) {
-	url := "https://api.github.com/repos/zaigie/palworld-server-tool/tags"
+	url := "https://api.github.com/repos/1311823723/palworld-server-tool-enhanced/tags"
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zaigie/palworld-server-tool/api"
@@ -20,8 +22,12 @@ import (
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
+	"github.com/zaigie/palworld-server-tool/internal/supervisor"
 	"github.com/zaigie/palworld-server-tool/internal/system"
 	"github.com/zaigie/palworld-server-tool/internal/task"
+	"github.com/zaigie/palworld-server-tool/internal/tool"
+	"github.com/zaigie/palworld-server-tool/internal/worldsettings"
+	"github.com/zaigie/palworld-server-tool/service"
 )
 
 var (
@@ -33,6 +39,14 @@ const startupPortEnvironment = "PST_PORT"
 type startupPort struct {
 	Port   int
 	Source config.WebPortOverrideSource
+}
+
+type palServerController struct{}
+
+func (palServerController) Save() error { return tool.Save() }
+
+func (palServerController) Shutdown(seconds int, message string) error {
+	return tool.Shutdown(seconds, message)
 }
 
 //go:embed assets/*
@@ -73,9 +87,36 @@ func main() {
 		logger.Panic(err)
 	}
 	config.SetRuntimeWeb(settings.Web)
+	serverSupervisor := supervisor.New(
+		settings.ServerProcess,
+		supervisor.OSProcessLauncher{},
+		supervisor.OSProcessDetector{},
+		palServerController{},
+	)
+	defer serverSupervisor.Close()
+	if err := serverSupervisor.Bootstrap(); err != nil {
+		logger.Errorf("Server process supervisor startup: %v\n", err)
+	}
 
 	db := database.GetDB()
 	defer db.Close()
+	settingsManager := worldsettings.NewManager(configStore, serverSupervisor, func(ctx context.Context) error {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var lastErr error
+		for {
+			if _, err := tool.Info(); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("official REST API did not become healthy: %w", lastErr)
+			case <-ticker.C:
+			}
+		}
+	}, service.NewWorldSettingsAuditStore(db))
 
 	docs.SwaggerInfo.Title = "Palworld Manage API"
 	docs.SwaggerInfo.Version = version
@@ -92,7 +133,7 @@ func main() {
 	startScheduler := func() {
 		go task.Schedule(db)
 	}
-	api.RegisterRouter(router, startScheduler)
+	api.RegisterRouterWithManagers(router, startScheduler, serverSupervisor, settingsManager)
 
 	assetsFS, _ := fs.Sub(assets, "assets")
 	router.StaticFS("/assets", http.FS(assetsFS))
@@ -100,11 +141,15 @@ func main() {
 	mapTilesFS, _ := fs.Sub(mapTiles, "map")
 	router.StaticFS("/map/tiles", http.FS(mapTilesFS))
 
-	router.GET("/", func(c *gin.Context) {
+	serveWebApp := func(c *gin.Context) {
 		c.Writer.WriteHeader(http.StatusOK)
 		file, _ := indexHTML.ReadFile("index.html")
 		c.Writer.Write(file)
-	})
+	}
+	router.GET("/", serveWebApp)
+	for _, route := range []string{"/work-pals", "/inventory", "/world-settings", "/breeding-farms"} {
+		router.GET(route, serveWebApp)
+	}
 	router.GET("/pal-conf", func(c *gin.Context) {
 		c.Writer.WriteHeader(http.StatusOK)
 		file, _ := palConfHTML.ReadFile("pal-conf.html")

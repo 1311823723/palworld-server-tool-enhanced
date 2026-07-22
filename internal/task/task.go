@@ -156,6 +156,9 @@ func SavSync() {
 	logger.Info("Save sync started\n")
 	err := tool.Decode(config.Current().Save.Path)
 	if err != nil {
+		if statusErr := service.MarkBreedingParserFailed(database.GetDB(), time.Now().UTC()); statusErr != nil {
+			logger.Errorf("Failed to persist save parser status: %v\n", statusErr)
+		}
 		logger.Errorf("Save sync failed: %v\n", err)
 		return
 	}

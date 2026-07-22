@@ -56,6 +56,40 @@ func InitDB() *bbolt.DB {
 	if err != nil {
 		logger.Panic(err)
 	}
+	// normalized save snapshots; each snapshot is a nested bucket and the active
+	// pointer is switched only after all indexes have been written.
+	err = db_.Update(func(tx *bbolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists([]byte("save_snapshots")); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists([]byte("save_snapshot_state"))
+		return err
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
+	// World settings audit records contain only action metadata and changed key
+	// names; secret values are never persisted here.
+	err = db_.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("world_settings_audit"))
+		return err
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
+	// Breeding notifications and baselines are persistent so re-parsing the
+	// same save after a PST restart cannot produce duplicate egg alerts.
+	err = db_.Update(func(tx *bbolt.Tx) error {
+		for _, name := range [][]byte{[]byte("breeding_events"), []byte("breeding_event_dedup"), []byte("breeding_monitor_state"), []byte("breeding_events_by_farm"), []byte("breeding_events_by_base"), []byte("breeding_events_by_type"), []byte("breeding_events_by_read")} {
+			if _, err := tx.CreateBucketIfNotExists(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
 	return db_
 }
 

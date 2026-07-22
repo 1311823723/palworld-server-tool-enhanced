@@ -18,12 +18,13 @@ from palsav.core import decompress_sav_to_gvas
 from palsav.gvas import GvasFile
 from palsav.paltypes import PALWORLD_TYPE_HINTS, PALWORLD_CUSTOM_PROPERTIES
 
-from world_types import Player, Pal, Guild, BaseCamp
+from world_types import Player, Pal, Guild, BaseCamp, hexuid_to_decimal
 from logger import log
 
 # Global state shared by the current decode helpers.
 wsd = None
 gvas_file = None
+player_container_owners = {}
 
 PLAYER_CONTAINER_KEYS = [
     "CommonContainerId",
@@ -56,6 +57,8 @@ def _save_parameter(character_entry):
 
 
 def structure_player(dir_path, filetime: int = -1):
+    global player_container_owners
+    player_container_owners = {}
     if not wsd.get("CharacterSaveParameterMap"):
         return [], 0
 
@@ -69,9 +72,7 @@ def structure_player(dir_path, filetime: int = -1):
         uid = c["key"]["PlayerUId"]["value"]
         sp = _save_parameter(c)
         if sp.get("IsPlayer") and sp["IsPlayer"]["value"]:
-            sp["Items"], has_warning = getPlayerItems(
-                uid, dir_path, item_containers
-            )
+            sp["Items"], has_warning = getPlayerItems(uid, dir_path, item_containers)
             player_save_warnings += int(has_warning)
             players.append(Player(uid, sp).to_dict())
         else:
@@ -139,6 +140,14 @@ def getPlayerItems(player_uid, dir_path, item_containers):
         if ref is None:
             continue
         container_id = str(ref["value"]["ID"]["value"])
+        from snapshot import PLAYER_SOURCE_TYPES
+
+        player_container_owners[container_id.lower()] = {
+            "player_uid": hexuid_to_decimal(player_uid),
+            "source_type": PLAYER_SOURCE_TYPES[key],
+            "container_type": PLAYER_SOURCE_TYPES[key],
+            "container_name": key,
+        }
         slots = item_containers.get(container_id)
         if slots is None:
             continue

@@ -2,11 +2,121 @@ package config
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"go.etcd.io/bbolt"
 )
+
+func TestServerProcessConfigurationRejectsUnsafeValues(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "PalServer.exe")
+	if err := os.WriteFile(executable, []byte("fixture"), 0600); err != nil {
+		t.Fatalf("create executable fixture: %v", err)
+	}
+	value := Default().ServerProcess
+	value.Enabled = true
+	value.ExecutablePath = executable
+	value.Arguments = []string{"-port=8211", "& powershell.exe"}
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("unsafe process argument must be rejected")
+	}
+	value.Arguments = []string{"-port=8211"}
+	if err := ValidateServerProcess(value); err != nil {
+		t.Fatalf("valid process configuration rejected: %v", err)
+	}
+	value.ExecutablePath = filepath.Join(t.TempDir(), "PalServer.exe")
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("missing executable must be rejected")
+	}
+}
+
+func TestScheduledRestartConfiguration(t *testing.T) {
+	value := Default().ServerProcess
+	if value.ScheduledRestartFrequency != ScheduledRestartDaily {
+		t.Fatalf("default scheduled restart frequency = %q, want daily", value.ScheduledRestartFrequency)
+	}
+	if value.ScheduledRestartTime != "04:00" {
+		t.Fatalf("default scheduled restart time = %q, want 04:00", value.ScheduledRestartTime)
+	}
+
+	value.ScheduledRestartTime = "4:00"
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("non-padded scheduled restart time must be rejected")
+	}
+
+	value.ScheduledRestartTime = "24:00"
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("out-of-range scheduled restart time must be rejected")
+	}
+
+	value.ScheduledRestartTime = "04:00"
+	value.ScheduledRestartFrequency = ScheduledRestartIntervalDays
+	value.ScheduledRestartIntervalDays = -1
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("negative scheduled restart interval must be rejected")
+	}
+
+	value.ScheduledRestartIntervalDays = 3
+	value.ScheduledRestartStartDate = "2026/07/22"
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("invalid scheduled restart start date must be rejected")
+	}
+
+	value.ScheduledRestartFrequency = ScheduledRestartWeekly
+	value.ScheduledRestartWeekday = 7
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("invalid scheduled restart weekday must be rejected")
+	}
+
+	value.ScheduledRestartFrequency = ScheduledRestartMonthly
+	value.ScheduledRestartDayOfMonth = 32
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("invalid scheduled restart day of month must be rejected")
+	}
+
+	value.ScheduledRestartFrequency = "cron"
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("unsupported scheduled restart frequency must be rejected")
+	}
+
+	value = Default().ServerProcess
+	value.ScheduledRestartEnabled = true
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("scheduled restart without process management must be rejected")
+	}
+}
+
+func TestBreedingMonitorConfiguration(t *testing.T) {
+	value := NormalizeBreedingMonitor(BreedingMonitorConfig{})
+	if value.SelectionMode != "selected" || value.MinimumReadyEggs != 1 || value.HistoryRetentionDays != 30 || value.GameNotificationMessage == "" {
+		t.Fatalf("unexpected breeding defaults: %#v", value)
+	}
+	value.SelectionMode = "nearby"
+	if err := ValidateBreedingMonitor(value); err == nil {
+		t.Fatal("unsupported breeding selection mode must be rejected")
+	}
+	value.SelectionMode = "selected"
+	value.MinimumReadyEggs = 0
+	if err := ValidateBreedingMonitor(value); err == nil {
+		t.Fatal("zero egg notification threshold must be rejected")
+	}
+	value.MinimumReadyEggs = 1
+	value.HistoryRetentionDays = 3651
+	if err := ValidateBreedingMonitor(value); err == nil {
+		t.Fatal("excessive event retention must be rejected")
+	}
+	value.HistoryRetentionDays = 30
+	value.SelectedFarmIDs = []string{"farm-a\nforged"}
+	if err := ValidateBreedingMonitor(value); err == nil {
+		t.Fatal("invalid farm identifier must be rejected")
+	}
+	value.SelectedFarmIDs = nil
+	value.GameNotificationMessage = "第一行\n第二行"
+	if err := ValidateBreedingMonitor(value); err == nil {
+		t.Fatal("multi-line game notification message must be rejected")
+	}
+}
 
 func TestStoreFirstRunInitializationAndPersistence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "config.db")
