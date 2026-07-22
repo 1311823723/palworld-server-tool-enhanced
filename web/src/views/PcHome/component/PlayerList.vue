@@ -1,13 +1,19 @@
 <script setup>
 import ApiService from "@/service/api";
 import pageStore from "@/stores/model/page.js";
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed, nextTick, watch } from "vue";
 import dayjs from "dayjs";
 import { useI18n } from "vue-i18n";
 import { ChevronForward } from "@vicons/ionicons5";
 import PlayerDetail from "./PlayerDetail.vue";
 import playerToGuildStore from "@/stores/model/playerToGuild";
 import whitelistStore from "@/stores/model/whitelist";
+import {
+  currentSessionSeconds,
+  formatOnlineDuration,
+  isPlayerCurrentlyOnline,
+  totalOnlineSeconds,
+} from "@/utils/playerDuration";
 
 const { t } = useI18n();
 
@@ -34,6 +40,9 @@ const statusFilter = ref("all");
 const platformFilter = ref("all");
 const whitelistFilter = ref("all");
 const sortBy = ref("last_online");
+const durationNow = ref(Date.now());
+const durationSnapshotAt = ref(Date.now());
+let durationTimer = null;
 // 平台标记颜色
 const platformColors = {
   steam: { color: "#223D58", textColor: "#fff" }, // 青底白字
@@ -47,6 +56,7 @@ const platformColors = {
 const getPlayerList = async () => {
   if (props.players.length > 0) {
     playerList.value = [...props.players];
+    durationSnapshotAt.value = Date.now();
     return;
   }
   const { data } = await new ApiService().getPlayerList({
@@ -54,6 +64,7 @@ const getPlayerList = async () => {
     desc: true,
   });
   playerList.value = Array.isArray(data.value) ? data.value : [];
+  durationSnapshotAt.value = Date.now();
 };
 
 // 获取玩家详情信息
@@ -93,7 +104,10 @@ watch(
 watch(
   () => props.players,
   (players) => {
-    if (players?.length > 0) playerList.value = [...players];
+    if (players?.length > 0) {
+      playerList.value = [...players];
+      durationSnapshotAt.value = Date.now();
+    }
   },
   { deep: true },
 );
@@ -115,6 +129,9 @@ const isWhite = computed(() => (player) => {
 });
 
 onMounted(async () => {
+  durationTimer = window.setInterval(() => {
+    durationNow.value = Date.now();
+  }, 1000);
   loadingPlayerDetail.value = true;
   loadingPlayer.value = true;
   await getPlayerList();
@@ -129,10 +146,20 @@ onMounted(async () => {
   loadingPlayerDetail.value = false;
 });
 
+onBeforeUnmount(() => {
+  window.clearInterval(durationTimer);
+});
+
 // 其他操作
-const isPlayerOnline = (last_online) => {
-  return dayjs() - dayjs(last_online) < 80000;
+const isPlayerOnline = (player) => {
+  return isPlayerCurrentlyOnline(player, durationNow.value);
 };
+const displayCurrentSession = (player) =>
+  formatOnlineDuration(currentSessionSeconds(player, durationNow.value));
+const displayTotalOnline = (player) =>
+  formatOnlineDuration(
+    totalOnlineSeconds(player, durationNow.value, durationSnapshotAt.value),
+  );
 const getPlatformColor = (userId) => {
   if (!userId) return platformColors.default;
   const platform = userId.split("_")[0];
@@ -186,7 +213,7 @@ const filteredPlayers = computed(() => {
       .join(" ")
       .toLowerCase();
     if (keyword && !searchable.includes(keyword)) return false;
-    const online = isPlayerOnline(player.last_online);
+    const online = isPlayerOnline(player);
     if (statusFilter.value === "online" && !online) return false;
     if (statusFilter.value === "offline" && online) return false;
     const platform = player.user_id?.split("_")[0];
@@ -287,13 +314,13 @@ const filteredPlayers = computed(() => {
                     <span
                       class="status-dot"
                       :class="
-                        isPlayerOnline(player.last_online)
+                        isPlayerOnline(player)
                           ? 'is-online'
                           : 'is-offline'
                       "
                     ></span>
                     {{
-                      isPlayerOnline(player.last_online)
+                      isPlayerOnline(player)
                         ? $t("status.online")
                         : $t("status.offline")
                     }}
@@ -317,6 +344,16 @@ const filteredPlayers = computed(() => {
                 <div class="last-online">
                   {{ $t("status.last_online") }}
                   <span>{{ displayLastOnline(player.last_online) }}</span>
+                </div>
+                <div class="online-duration">
+                  <span>
+                    本次在线
+                    <strong>{{ isPlayerOnline(player) ? displayCurrentSession(player) : "—" }}</strong>
+                  </span>
+                  <span>
+                    累计在线
+                    <strong>{{ displayTotalOnline(player) }}</strong>
+                  </span>
                 </div>
               </div>
               <n-icon class="row-chevron" size="18">
@@ -500,6 +537,42 @@ const filteredPlayers = computed(() => {
 
 .is-dark .last-online span {
   color: rgba(255, 255, 255, 0.62);
+}
+
+.online-duration {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.online-duration span {
+  min-width: 0;
+  padding: 6px 8px;
+  color: rgba(24, 24, 28, 0.5);
+  background: rgba(47, 125, 104, 0.07);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.online-duration strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: #276957;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-dark .online-duration span {
+  color: rgba(255, 255, 255, 0.52);
+  background: rgba(111, 190, 163, 0.09);
+}
+
+.is-dark .online-duration strong {
+  color: #6fbea3;
 }
 
 .row-chevron {

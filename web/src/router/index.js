@@ -3,6 +3,9 @@ import { canAccessAdminRoute } from "@/utils/enhancedViews";
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
+  scrollBehavior() {
+    return { top: 0, left: 0 };
+  },
   routes: [
     {
       path: "/",
@@ -17,6 +20,11 @@ const router = createRouter({
     {
       path: "/players",
       name: "players",
+      component: () => import("@/views/Players.vue"),
+    },
+    {
+      path: "/world-map",
+      name: "map",
       component: () => import("@/views/Players.vue"),
     },
     {

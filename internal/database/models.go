@@ -291,18 +291,23 @@ type Pal struct {
 }
 
 type OnlinePlayer struct {
-	PlayerUid     string    `json:"player_uid"`
-	UserId        string    `json:"user_id"`
-	SteamId       string    `json:"steam_id"`
-	Nickname      string    `json:"nickname"`
-	AccountName   string    `json:"account_name"`
-	Ip            string    `json:"ip"`
-	Ping          float64   `json:"ping"`
-	LocationX     float64   `json:"location_x"`
-	LocationY     float64   `json:"location_y"`
-	Level         int32     `json:"level"`
-	BuildingCount int32     `json:"building_count"`
-	LastOnline    time.Time `json:"last_online"`
+	PlayerUid             string    `json:"player_uid"`
+	UserId                string    `json:"user_id"`
+	SteamId               string    `json:"steam_id"`
+	Nickname              string    `json:"nickname"`
+	AccountName           string    `json:"account_name"`
+	Ip                    string    `json:"ip"`
+	Ping                  float64   `json:"ping"`
+	LocationX             float64   `json:"location_x"`
+	LocationY             float64   `json:"location_y"`
+	Level                 int32     `json:"level"`
+	BuildingCount         int32     `json:"building_count"`
+	LastOnline            time.Time `json:"last_online"`
+	IsOnline              bool      `json:"is_online"`
+	OnlineSince           time.Time `json:"online_since"`
+	OnlineLastSeenAt      time.Time `json:"online_last_seen_at"`
+	CurrentSessionSeconds int64     `json:"current_session_seconds"`
+	TotalOnlineSeconds    int64     `json:"total_online_seconds"`
 }
 
 type GuildPlayer struct {

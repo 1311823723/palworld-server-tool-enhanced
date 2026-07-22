@@ -5,6 +5,7 @@ import { NIcon } from "naive-ui";
 import {
   ArchiveOutlined,
   DashboardOutlined,
+  MapOutlined,
   PublicRound,
   SupervisedUserCircleRound,
 } from "@vicons/material";
@@ -40,6 +41,7 @@ onBeforeUnmount(() => {
 const navigation = computed(() => [
   { label: "总览", path: "/", icon: DashboardOutlined, public: true },
   { label: "玩家", path: "/players", icon: SupervisedUserCircleRound, public: true },
+  { label: "地图", path: "/world-map", icon: MapOutlined, public: true },
   { label: "帕鲁管理", path: "/pal-management", icon: GameController, public: true },
   { label: "据点", path: "/base-camps", icon: PublicRound, public: true },
   { label: "工作帕鲁", path: "/work-pals", icon: GameController, public: true },
@@ -150,7 +152,7 @@ const logout = () => {
   background-image: linear-gradient(rgba(23, 141, 121, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(23, 141, 121, .045) 1px, transparent 1px);
   background-size: 28px 28px;
 }
-.operations-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: 228px; padding: 22px 14px 18px; border-right: 1px solid var(--ops-line); background: rgba(255,255,255,.92); backdrop-filter: blur(18px); }
+.operations-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: 228px; padding: 22px 14px 18px; border-right: 1px solid var(--ops-line); background: rgba(255,255,255,.92); backdrop-filter: blur(18px); overflow-y: auto; overscroll-behavior: contain; }
 .brand, .mobile-brand { display: flex; align-items: center; gap: 11px; color: inherit; }
 .brand { padding: 4px 8px 25px; }
 .brand-mark { display: grid; place-items: center; flex: 0 0 auto; width: 38px; height: 38px; border: 1px solid rgba(23,141,121,.25); border-radius: 11px; color: #fff; background: var(--ops-accent); font: 700 20px/1 ui-monospace, monospace; box-shadow: 0 8px 18px rgba(23,141,121,.18); }
@@ -208,7 +210,7 @@ p { max-width: 65ch; margin: 0; color: var(--ops-muted); font-size: 14px; line-h
   .mobile-bottom-nav a.active { color: var(--ops-accent); background: var(--ops-accent-soft); }
   .mobile-bottom-nav a:focus-visible { outline: 2px solid var(--ops-accent); outline-offset: -2px; }
   .mobile-menu-layer { position: fixed; inset: 0; z-index: 40; background: rgba(20,33,27,.24); }
-  .mobile-drawer { position: absolute; inset: 0 auto 0 0; display: flex; flex-direction: column; gap: 5px; width: min(78vw, 300px); padding: 15px 12px; border-right: 1px solid var(--ops-line); background: var(--ops-panel); box-shadow: 14px 0 32px rgba(22,52,41,.18); }
+  .mobile-drawer { position: absolute; inset: 0 auto 0 0; display: flex; flex-direction: column; gap: 5px; width: min(78vw, 300px); padding: 15px 12px; border-right: 1px solid var(--ops-line); background: var(--ops-panel); box-shadow: 14px 0 32px rgba(22,52,41,.18); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .mobile-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 0 8px 10px; border-bottom: 1px solid var(--ops-line); }
   .mobile-drawer a { display: flex; align-items: center; gap: 11px; min-height: 42px; padding: 0 12px; border-radius: 9px; color: var(--ops-muted); font-size: 14px; }
   .mobile-drawer a.active { color: var(--ops-accent); background: var(--ops-accent-soft); font-weight: 650; }

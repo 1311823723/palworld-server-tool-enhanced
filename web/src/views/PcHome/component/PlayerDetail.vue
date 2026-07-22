@@ -3,7 +3,7 @@ import { ContentCopyFilled, PersonSearchSharp } from "@vicons/material";
 import { LogOut, Ban, ShieldCheckmarkOutline } from "@vicons/ionicons5";
 import { CrownFilled } from "@vicons/antd";
 import ApiService from "@/service/api";
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed, watch } from "vue";
 import dayjs from "dayjs";
 import { useI18n } from "vue-i18n";
 import palMap from "@/assets/pal.json";
@@ -18,12 +18,21 @@ import {
   localizedSkillName,
   statusPointTranslationKey,
 } from "@/utils/gameLabels";
+import {
+  currentSessionSeconds,
+  formatOnlineDuration,
+  isPlayerCurrentlyOnline,
+  totalOnlineSeconds,
+} from "@/utils/playerDuration";
 
 const { t, locale } = useI18n();
 const PALWORLD_TOKEN = "palworld_token";
 const props = defineProps(["playerInfo", "playerPalsList"]);
 const playerInfo = computed(() => props.playerInfo);
 const playerPalsList = computed(() => props.playerPalsList);
+const durationNow = ref(Date.now());
+const durationSnapshotAt = ref(Date.now());
+let durationTimer = null;
 
 const isLogin = computed(() => userStore().getLoginInfo().isLogin);
 
@@ -164,6 +173,14 @@ watch(
     paginationReactive.pageSize = 10;
     searchValue.value = "";
     mergeItems();
+  },
+);
+
+watch(
+  () => playerInfo.value,
+  () => {
+    durationSnapshotAt.value = Date.now();
+    durationNow.value = Date.now();
   },
 );
 
@@ -375,6 +392,9 @@ const isWhite = (player) => {
 };
 
 onMounted(async () => {
+  durationTimer = window.setInterval(() => {
+    durationNow.value = Date.now();
+  }, 1000);
   skillTypeList.value = getSkillTypeList();
   await getWhiteList();
   localeLowerPalMap.value = Object.keys(palMap[locale.value]).reduce(
@@ -384,6 +404,10 @@ onMounted(async () => {
     },
     {},
   );
+});
+
+onBeforeUnmount(() => {
+  window.clearInterval(durationTimer);
 });
 
 // 其他操作
@@ -421,9 +445,14 @@ const getUnknowPalAvatar = (is_boss = false) => {
   }
   return new URL("@/assets/pals/unknown.png", import.meta.url).href;
 };
-const isPlayerOnline = (last_online) => {
-  return dayjs() - dayjs(last_online) < 80000;
-};
+const isPlayerOnline = (player) =>
+  isPlayerCurrentlyOnline(player, durationNow.value);
+const displayCurrentSession = (player) =>
+  formatOnlineDuration(currentSessionSeconds(player, durationNow.value));
+const displayTotalOnline = (player) =>
+  formatOnlineDuration(
+    totalOnlineSeconds(player, durationNow.value, durationSnapshotAt.value),
+  );
 const getPlatformColor = (userId) => {
   if (!userId) return platformColors.default;
   return platformColors[userId.split("_")[0]] || platformColors.default;
@@ -533,13 +562,13 @@ const createPlayerItemsColumns = () => {
               <n-tag
                 :bordered="false"
                 :type="
-                  isPlayerOnline(playerInfo?.last_online) ? 'success' : 'error'
+                  isPlayerOnline(playerInfo) ? 'success' : 'error'
                 "
                 size="small"
                 round
               >
                 {{
-                  isPlayerOnline(playerInfo?.last_online)
+                  isPlayerOnline(playerInfo)
                     ? $t("status.online")
                     : $t("status.offline")
                 }}
@@ -569,6 +598,16 @@ const createPlayerItemsColumns = () => {
                 {{ $t("status.last_online") }}
                 {{ displayLastOnline(playerInfo?.last_online) }}
               </span>
+            </div>
+            <div class="online-time-summary">
+              <div>
+                <span>本次持续在线</span>
+                <strong>{{ isPlayerOnline(playerInfo) ? displayCurrentSession(playerInfo) : "当前离线" }}</strong>
+              </div>
+              <div>
+                <span>累计在线时长</span>
+                <strong>{{ displayTotalOnline(playerInfo) }}</strong>
+              </div>
             </div>
           </div>
           <n-button
@@ -990,6 +1029,57 @@ const createPlayerItemsColumns = () => {
 
 .is-dark .last-online-text {
   color: rgba(255, 255, 255, 0.5);
+}
+
+.online-time-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 8px;
+  max-width: 520px;
+  margin-top: 14px;
+}
+
+.online-time-summary > div {
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 125, 104, 0.14);
+  border-radius: 10px;
+  background: rgba(47, 125, 104, 0.07);
+}
+
+.online-time-summary span,
+.online-time-summary strong {
+  display: block;
+}
+
+.online-time-summary span {
+  color: rgba(24, 24, 28, 0.5);
+  font-size: 11px;
+}
+
+.online-time-summary strong {
+  margin-top: 3px;
+  color: #276957;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.is-dark .online-time-summary > div {
+  border-color: rgba(111, 190, 163, 0.18);
+  background: rgba(111, 190, 163, 0.08);
+}
+
+.is-dark .online-time-summary span {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.is-dark .online-time-summary strong {
+  color: #6fbea3;
+}
+
+@media (max-width: 640px) {
+  .online-time-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .identity-copy-list {
