@@ -71,6 +71,91 @@ class ApiService extends Service {
     return this.fetch(`/api/server/watchdog`).post(param).json();
   }
 
+  async getBaseCamps() {
+    return this.fetch(`/api/base-camps`).get().json();
+  }
+  async getBaseCamp(baseId) {
+    return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}`).get().json();
+  }
+  async getBaseWorkPals(baseId, param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}/work-pals?${query}`).get().json();
+  }
+  async getBaseFeedBoxes(baseId) {
+    return this.fetch(`/api/base-camps/${encodeURIComponent(baseId)}/feed-boxes`).get().json();
+  }
+  async getInventorySummary(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/inventory/summary?${query}`).get().json();
+  }
+  async getInventoryItemLocations(itemId, param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/inventory/items/${encodeURIComponent(itemId)}/locations?${query}`).get().json();
+  }
+  async getInventoryContainers(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/inventory/containers?${query}`).get().json();
+  }
+  async getBreedingFarms(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/breeding-farms?${query}`).get().json();
+  }
+  async getBreedingFarm(farmId) {
+    return this.fetch(`/api/breeding-farms/${encodeURIComponent(farmId)}`).get().json();
+  }
+  async getBreedingFarmParents(farmId) {
+    return this.fetch(`/api/breeding-farms/${encodeURIComponent(farmId)}/parents`).get().json();
+  }
+  async getBreedingFarmCakes(farmId) {
+    return this.fetch(`/api/breeding-farms/${encodeURIComponent(farmId)}/cakes`).get().json();
+  }
+  async getBreedingFarmEggs(farmId) {
+    return this.fetch(`/api/breeding-farms/${encodeURIComponent(farmId)}/eggs`).get().json();
+  }
+  async getBreedingCapabilities() {
+    return this.fetch(`/api/breeding-farms/capabilities`).get().json();
+  }
+  async getBreedingNotificationConfig() {
+    return this.fetch(`/api/breeding-farms/notification-config`).get().json();
+  }
+  async updateBreedingNotificationConfig(param) {
+    return this.fetch(`/api/breeding-farms/notification-config`).put(param).json();
+  }
+  async getBreedingEvents(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/breeding-farms/events?${query}`).get().json();
+  }
+  async getUnreadBreedingEvents() {
+    return this.fetch(`/api/breeding-farms/events/unread`).get().json();
+  }
+  async markBreedingEventRead(eventId) {
+    return this.fetch(`/api/breeding-farms/events/${encodeURIComponent(eventId)}/read`).post().json();
+  }
+  async markAllBreedingEventsRead() {
+    return this.fetch(`/api/breeding-farms/events/read-all`).post().json();
+  }
+  async getWorldSettingsSchema() {
+    return this.fetch(`/api/world-settings/schema`).get().json();
+  }
+  async getWorldSettings() {
+    return this.fetch(`/api/world-settings`).get().json();
+  }
+  async validateWorldSettings(param) {
+    return this.fetch(`/api/world-settings/validate`).post(param).json();
+  }
+  async applyWorldSettings(param) {
+    return this.fetch(`/api/world-settings/apply`).post(param).json();
+  }
+  async getWorldSettingsBackups() {
+    return this.fetch(`/api/world-settings/backups`).get().json();
+  }
+  async restoreWorldSettingsBackup(backupId, param) {
+    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}/restore`).post(param).json();
+  }
+  async deleteWorldSettingsBackup(backupId) {
+    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}`).delete().json();
+  }
+
   async getPlayerList(param) {
     const query = this.generateQuery(param);
     return this.fetch(`/api/player?${query}`).get().json();

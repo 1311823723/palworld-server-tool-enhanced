@@ -25,6 +25,7 @@ with mock.patch.dict(
             Pal=mock.Mock(),
             Guild=mock.Mock(),
             BaseCamp=mock.Mock(),
+            hexuid_to_decimal=lambda value: str(value),
         ),
         "logger": SimpleNamespace(log=mock.Mock()),
     },

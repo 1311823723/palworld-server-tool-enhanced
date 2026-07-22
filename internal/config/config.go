@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"go.etcd.io/bbolt"
 	"golang.org/x/crypto/bcrypt"
@@ -78,27 +79,63 @@ type ManageConfig struct {
 	KickNonWhitelist bool `json:"kick_non_whitelist"`
 }
 
+type InventoryVisibilityConfig struct {
+	Mode               string `json:"mode"`
+	AllowPublicSummary bool   `json:"allow_public_summary"`
+}
+
+type BreedingMonitorConfig struct {
+	Enabled                 bool     `json:"enabled"`
+	NotifyExistingOnEnable  bool     `json:"notify_existing_on_enable"`
+	SelectionMode           string   `json:"selection_mode"`
+	SelectedBaseIDs         []string `json:"selected_base_ids"`
+	SelectedFarmIDs         []string `json:"selected_farm_ids"`
+	NotifyOnEachEgg         bool     `json:"notify_on_each_egg"`
+	MinimumReadyEggs        int      `json:"minimum_ready_eggs"`
+	BrowserNotifications    bool     `json:"browser_notifications"`
+	InAppNotifications      bool     `json:"in_app_notifications"`
+	GameNotifications       bool     `json:"game_notifications"`
+	GameNotificationMessage string   `json:"game_notification_message"`
+	HistoryRetentionDays    int      `json:"history_retention_days"`
+}
+
+const (
+	ScheduledRestartDaily        = "daily"
+	ScheduledRestartIntervalDays = "interval_days"
+	ScheduledRestartWeekly       = "weekly"
+	ScheduledRestartMonthly      = "monthly"
+)
+
 type ServerProcessConfig struct {
-	Enabled                     bool     `json:"enabled"`
-	ExecutablePath              string   `json:"executable_path"`
-	WorkingDirectory            string   `json:"working_directory"`
-	Arguments                   []string `json:"arguments"`
-	WatchdogEnabled             bool     `json:"watchdog_enabled"`
-	RestartDelaySeconds         int      `json:"restart_delay_seconds"`
-	GracefulShutdownSeconds     int      `json:"graceful_shutdown_seconds"`
-	GracefulShutdownMessage     string   `json:"graceful_shutdown_message"`
-	MaxRestartAttempts          int      `json:"max_restart_attempts"`
-	RestartAttemptWindowSeconds int      `json:"restart_attempt_window_seconds"`
+	Enabled                      bool     `json:"enabled"`
+	ExecutablePath               string   `json:"executable_path"`
+	WorkingDirectory             string   `json:"working_directory"`
+	Arguments                    []string `json:"arguments"`
+	WatchdogEnabled              bool     `json:"watchdog_enabled"`
+	ScheduledRestartEnabled      bool     `json:"scheduled_restart_enabled"`
+	ScheduledRestartFrequency    string   `json:"scheduled_restart_frequency"`
+	ScheduledRestartTime         string   `json:"scheduled_restart_time"`
+	ScheduledRestartIntervalDays int      `json:"scheduled_restart_interval_days"`
+	ScheduledRestartStartDate    string   `json:"scheduled_restart_start_date"`
+	ScheduledRestartWeekday      int      `json:"scheduled_restart_weekday"`
+	ScheduledRestartDayOfMonth   int      `json:"scheduled_restart_day_of_month"`
+	RestartDelaySeconds          int      `json:"restart_delay_seconds"`
+	GracefulShutdownSeconds      int      `json:"graceful_shutdown_seconds"`
+	GracefulShutdownMessage      string   `json:"graceful_shutdown_message"`
+	MaxRestartAttempts           int      `json:"max_restart_attempts"`
+	RestartAttemptWindowSeconds  int      `json:"restart_attempt_window_seconds"`
 }
 
 type Config struct {
-	Web           WebConfig           `json:"web"`
-	Task          TaskConfig          `json:"task"`
-	Rcon          RconConfig          `json:"rcon"`
-	Rest          RestConfig          `json:"rest"`
-	Save          SaveConfig          `json:"save"`
-	Manage        ManageConfig        `json:"manage"`
-	ServerProcess ServerProcessConfig `json:"server_process"`
+	Web                 WebConfig                 `json:"web"`
+	Task                TaskConfig                `json:"task"`
+	Rcon                RconConfig                `json:"rcon"`
+	Rest                RestConfig                `json:"rest"`
+	Save                SaveConfig                `json:"save"`
+	Manage              ManageConfig              `json:"manage"`
+	InventoryVisibility InventoryVisibilityConfig `json:"inventory_visibility"`
+	BreedingMonitor     BreedingMonitorConfig     `json:"breeding_monitor"`
+	ServerProcess       ServerProcessConfig       `json:"server_process"`
 }
 
 func Default() Config {
@@ -116,9 +153,24 @@ func Default() Config {
 	value.Save.SyncInterval = 120
 	value.Save.BackupInterval = 14400
 	value.Save.BackupKeepDays = 7
+	value.InventoryVisibility.Mode = "admin"
+	value.BreedingMonitor.SelectionMode = "selected"
+	value.BreedingMonitor.NotifyOnEachEgg = true
+	value.BreedingMonitor.MinimumReadyEggs = 1
+	value.BreedingMonitor.BrowserNotifications = true
+	value.BreedingMonitor.InAppNotifications = true
+	value.BreedingMonitor.GameNotifications = true
+	value.BreedingMonitor.GameNotificationMessage = "【配种提醒】据点「{base}」有 {new_count} 枚新蛋可以拾取，当前共有 {count} 枚。"
+	value.BreedingMonitor.HistoryRetentionDays = 30
 	value.ServerProcess.RestartDelaySeconds = 10
+	value.ServerProcess.ScheduledRestartFrequency = ScheduledRestartDaily
+	value.ServerProcess.ScheduledRestartTime = "04:00"
+	value.ServerProcess.ScheduledRestartIntervalDays = 2
+	value.ServerProcess.ScheduledRestartStartDate = time.Now().Format(time.DateOnly)
+	value.ServerProcess.ScheduledRestartWeekday = int(time.Monday)
+	value.ServerProcess.ScheduledRestartDayOfMonth = 1
 	value.ServerProcess.GracefulShutdownSeconds = 30
-	value.ServerProcess.GracefulShutdownMessage = "Server restart in 30 seconds"
+	value.ServerProcess.GracefulShutdownMessage = "服务器将在 30 秒后重启，请提前回到安全位置。"
 	value.ServerProcess.MaxRestartAttempts = 5
 	value.ServerProcess.RestartAttemptWindowSeconds = 300
 	return value
@@ -247,6 +299,26 @@ func (s *Store) SetServerProcessWatchdog(enabled bool) error {
 	})
 }
 
+func (s *Store) SetBreedingMonitor(value BreedingMonitorConfig) error {
+	value = NormalizeBreedingMonitor(value)
+	if err := ValidateBreedingMonitor(value); err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(configBucket)
+		current := Default()
+		if err := json.Unmarshal(bucket.Get(configKey), &current); err != nil {
+			return err
+		}
+		current.BreedingMonitor = value
+		data, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		return bucket.Put(configKey, data)
+	})
+}
+
 func Validate(value Config) error {
 	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
 	if err := ValidateWebPort(value.Web.Port); err != nil {
@@ -264,14 +336,88 @@ func Validate(value Config) error {
 	if value.Rcon.Timeout < 0 || value.Rest.Timeout < 0 || value.Save.BackupKeepDays < 0 {
 		return errors.New("timeouts and backup retention cannot be negative")
 	}
+	if value.InventoryVisibility.Mode != "admin" && value.InventoryVisibility.Mode != "public_summary" {
+		return errors.New("inventory visibility mode must be admin or public_summary")
+	}
+	if value.InventoryVisibility.AllowPublicSummary && value.InventoryVisibility.Mode != "public_summary" {
+		return errors.New("public inventory summary requires public_summary visibility mode")
+	}
+	if err := ValidateBreedingMonitor(NormalizeBreedingMonitor(value.BreedingMonitor)); err != nil {
+		return err
+	}
 	if err := ValidateServerProcess(value.ServerProcess); err != nil {
 		return err
 	}
 	return nil
 }
 
+func NormalizeBreedingMonitor(value BreedingMonitorConfig) BreedingMonitorConfig {
+	defaults := Default().BreedingMonitor
+	if strings.TrimSpace(value.SelectionMode) == "" {
+		value.SelectionMode = defaults.SelectionMode
+	}
+	if value.MinimumReadyEggs == 0 {
+		value.MinimumReadyEggs = defaults.MinimumReadyEggs
+	}
+	if value.HistoryRetentionDays == 0 {
+		value.HistoryRetentionDays = defaults.HistoryRetentionDays
+	}
+	if strings.TrimSpace(value.GameNotificationMessage) == "" {
+		value.GameNotificationMessage = defaults.GameNotificationMessage
+	}
+	if value.SelectedBaseIDs == nil {
+		value.SelectedBaseIDs = []string{}
+	}
+	if value.SelectedFarmIDs == nil {
+		value.SelectedFarmIDs = []string{}
+	}
+	return value
+}
+
+func ValidateBreedingMonitor(value BreedingMonitorConfig) error {
+	switch value.SelectionMode {
+	case "selected", "all":
+	default:
+		return errors.New("breeding monitor selection mode must be selected or all")
+	}
+	if value.MinimumReadyEggs < 1 || value.MinimumReadyEggs > 10000 {
+		return errors.New("breeding monitor minimum ready eggs must be between 1 and 10000")
+	}
+	if value.HistoryRetentionDays < 1 || value.HistoryRetentionDays > 3650 {
+		return errors.New("breeding monitor history retention must be between 1 and 3650 days")
+	}
+	if utf8.RuneCountInString(value.GameNotificationMessage) > 300 || strings.ContainsAny(value.GameNotificationMessage, "\x00\r\n") {
+		return errors.New("breeding game notification message must be a single line of at most 300 characters")
+	}
+	if len(value.SelectedBaseIDs) > 10000 || len(value.SelectedFarmIDs) > 10000 {
+		return errors.New("too many breeding monitor selections")
+	}
+	for _, id := range append(append([]string{}, value.SelectedBaseIDs...), value.SelectedFarmIDs...) {
+		id = strings.TrimSpace(id)
+		if id == "" || len(id) > 512 || strings.ContainsAny(id, "\x00\r\n") {
+			return errors.New("invalid breeding monitor selection identifier")
+		}
+	}
+	return nil
+}
+
 func NormalizeServerProcess(value ServerProcessConfig) ServerProcessConfig {
 	defaults := Default().ServerProcess
+	if strings.TrimSpace(value.ScheduledRestartFrequency) == "" {
+		value.ScheduledRestartFrequency = defaults.ScheduledRestartFrequency
+	}
+	if strings.TrimSpace(value.ScheduledRestartTime) == "" {
+		value.ScheduledRestartTime = defaults.ScheduledRestartTime
+	}
+	if value.ScheduledRestartIntervalDays == 0 {
+		value.ScheduledRestartIntervalDays = defaults.ScheduledRestartIntervalDays
+	}
+	if strings.TrimSpace(value.ScheduledRestartStartDate) == "" {
+		value.ScheduledRestartStartDate = defaults.ScheduledRestartStartDate
+	}
+	if value.ScheduledRestartDayOfMonth == 0 {
+		value.ScheduledRestartDayOfMonth = defaults.ScheduledRestartDayOfMonth
+	}
 	if value.MaxRestartAttempts < 1 {
 		value.MaxRestartAttempts = defaults.MaxRestartAttempts
 	}
@@ -285,11 +431,41 @@ func NormalizeServerProcess(value ServerProcessConfig) ServerProcessConfig {
 }
 
 func ValidateServerProcess(value ServerProcessConfig) error {
+	value = NormalizeServerProcess(value)
 	if value.RestartDelaySeconds < 0 || value.GracefulShutdownSeconds < 0 || value.RestartAttemptWindowSeconds < 1 {
 		return errors.New("server process delays must be non-negative and restart window must be positive")
 	}
 	if value.MaxRestartAttempts < 1 {
 		return errors.New("server process max restart attempts must be positive")
+	}
+	if len(value.ScheduledRestartTime) != 5 || value.ScheduledRestartTime[2] != ':' {
+		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
+	}
+	if _, err := time.Parse("15:04", value.ScheduledRestartTime); err != nil {
+		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
+	}
+	switch value.ScheduledRestartFrequency {
+	case ScheduledRestartDaily:
+	case ScheduledRestartIntervalDays:
+		if value.ScheduledRestartIntervalDays < 1 || value.ScheduledRestartIntervalDays > 3650 {
+			return errors.New("scheduled restart interval must be between 1 and 3650 days")
+		}
+		if _, err := time.Parse(time.DateOnly, value.ScheduledRestartStartDate); err != nil {
+			return errors.New("scheduled restart start date must use YYYY-MM-DD format")
+		}
+	case ScheduledRestartWeekly:
+		if value.ScheduledRestartWeekday < int(time.Sunday) || value.ScheduledRestartWeekday > int(time.Saturday) {
+			return errors.New("scheduled restart weekday must be between 0 and 6")
+		}
+	case ScheduledRestartMonthly:
+		if value.ScheduledRestartDayOfMonth < 1 || value.ScheduledRestartDayOfMonth > 31 {
+			return errors.New("scheduled restart day of month must be between 1 and 31")
+		}
+	default:
+		return fmt.Errorf("unsupported scheduled restart frequency %q", value.ScheduledRestartFrequency)
+	}
+	if value.ScheduledRestartEnabled && !value.Enabled {
+		return errors.New("scheduled restart requires server process management to be enabled")
 	}
 	for _, argument := range value.Arguments {
 		lower := strings.ToLower(argument)

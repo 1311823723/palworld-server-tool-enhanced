@@ -35,8 +35,10 @@ import playerToGuildStore from "@/stores/model/playerToGuild";
 import { watch } from "vue";
 import userStore from "@/stores/model/user";
 import { h } from "vue";
+import { useRouter } from "vue-router";
 
 const emit = defineEmits(["open-config"]);
+const router = useRouter();
 
 const { t, locale } = useI18n();
 
@@ -92,7 +94,7 @@ const toPalConf = () => {
 };
 
 const toGithub = () => {
-  window.open("https://github.com/zaigie/palworld-server-tool/releases");
+  window.open("https://github.com/1311823723/palworld-server-tool-enhanced/releases");
 };
 const serverToolInfo = ref({});
 const hasNewVersion = ref(false);
@@ -201,6 +203,9 @@ const renderIcon = (icon, color = "#666") => {
   };
 };
 const controlCenterOption = [
+  { label: () => t("enhanced.worldSettings"), key: "world-settings", icon: renderIcon(Settings) },
+  { label: () => t("enhanced.inventory"), key: "inventory", icon: renderIcon(ArchiveOutlined) },
+  { label: () => t("enhanced.breedingFarms"), key: "breeding-farms", icon: renderIcon(GameController) },
   {
     label: () => t("configuration.title"),
     key: "settings",
@@ -268,7 +273,10 @@ const controlCenterOption = [
   },
 ];
 const handleSelectControlCenter = (key) => {
-  if (key === "settings") {
+  if (key === "world-settings" || key === "inventory" || key === "breeding-farms") {
+    if (checkAuthToken()) router.push(`/${key}`);
+    else { message.error(t("message.requireauth")); showLoginModal.value = true; }
+  } else if (key === "settings") {
     if (checkAuthToken()) emit("open-config");
     else {
       message.error(t("message.requireauth"));
@@ -599,6 +607,9 @@ onMounted(async () => {
                   </n-icon>
                 </template>
                 {{ $t("button.map") }}
+              </n-button>
+              <n-button secondary strong round @click="router.push('/work-pals')">
+                {{ $t("enhanced.workPals") }}
               </n-button>
             </n-button-group>
             <n-space>

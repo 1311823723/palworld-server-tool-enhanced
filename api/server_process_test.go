@@ -69,6 +69,78 @@ func TestServerProcessAPIRequiresAdministratorJWT(t *testing.T) {
 	}
 }
 
+func TestInventoryAPIRequiresAdministratorJWT(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	response := performJSONRequest(router, http.MethodGet, "/api/inventory/summary", nil, "")
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated inventory status code = %d, want 401", response.Code)
+	}
+}
+
+func TestBreedingFarmAPIRequiresAdministratorJWT(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	for _, path := range []string{
+		"/api/breeding-farms",
+		"/api/breeding-farms/capabilities",
+		"/api/breeding-farms/events",
+		"/api/breeding-farms/events/unread",
+		"/api/breeding-farms/notification-config",
+	} {
+		response := performJSONRequest(router, http.MethodGet, path, nil, "")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s status code = %d, want 401", path, response.Code)
+		}
+	}
+}
+
+func TestBreedingNotificationConfigDoesNotLeakSecretsAndConfirmsAllFarms(t *testing.T) {
+	router, token, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	settings := store.Config()
+	settings.Rcon.Password = "rcon-breeding-secret"
+	settings.Rest.Password = "rest-breeding-secret"
+	if err := store.Update(settings, ""); err != nil {
+		t.Fatalf("store secrets: %v", err)
+	}
+
+	response := performJSONRequest(router, http.MethodGet, "/api/breeding-farms/notification-config", nil, token)
+	if response.Code != http.StatusOK {
+		t.Fatalf("get breeding config code = %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "breeding-secret") {
+		t.Fatalf("breeding configuration leaked a password: %s", response.Body.String())
+	}
+
+	response = performJSONRequest(router, http.MethodPut, "/api/breeding-farms/notification-config", map[string]any{
+		"enabled": true, "selection_mode": "all", "minimum_ready_eggs": 1, "history_retention_days": 30,
+	}, token)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("monitor all without confirmation code = %d, want 400: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestPublicInventorySummaryIsDisabledByDefault(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	response := performJSONRequest(router, http.MethodGet, "/api/inventory/public-summary", nil, "")
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("public inventory summary code = %d, want 403", response.Code)
+	}
+}
+
+func TestWorldSettingsAPIRequiresAdministratorJWT(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	for _, path := range []string{"/api/world-settings/schema", "/api/world-settings", "/api/world-settings/backups"} {
+		response := performJSONRequest(router, http.MethodGet, path, nil, "")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s status code = %d, want 401", path, response.Code)
+		}
+	}
+}
+
 func TestServerProcessStartConflictReturns409(t *testing.T) {
 	manager := &fakeServerProcessManager{status: supervisor.Status{Running: true}}
 	router, token, store := newAuthenticatedProcessRouter(t, manager)

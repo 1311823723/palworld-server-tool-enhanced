@@ -18,6 +18,8 @@ with mock.patch.dict(
             convert_sav=mock.Mock(),
             structure_player=mock.Mock(),
             structure_guild=mock.Mock(),
+            wsd={},
+            player_container_owners={},
         ),
         "logger": SimpleNamespace(configure_logging=mock.Mock(), log=mock.Mock()),
     },
@@ -168,7 +170,9 @@ class RequestLoggingTests(unittest.TestCase):
         success = SimpleNamespace(status_code=200, reason="OK", text="")
         requests = SimpleNamespace(
             RequestException=RequestError,
-            put=mock.Mock(side_effect=[RequestError("connection refused"), success]),
+            put=mock.Mock(
+                side_effect=[RequestError("connection refused"), success, success]
+            ),
         )
 
         with tempfile.NamedTemporaryFile() as save_file:
@@ -294,13 +298,13 @@ class RequestLoggingTests(unittest.TestCase):
             for call in log.call_args_list
             if len(call.args) > 1 and call.args[1] == "ERROR"
         ]
-        self.assertEqual(len(errors), 3)
-        for message in errors[:2]:
+        self.assertEqual(len(errors), 4)
+        for message in errors[:3]:
             self.assertIn("HTTP 502 Bad Gateway", message)
             self.assertIn("empty response body", message)
         self.assertRegex(
             errors[-1],
-            r"Save sync failed: requests_failed=2 \(\d+\.\d{2}s\)",
+            r"Save sync failed: requests_failed=3 \(\d+\.\d{2}s\)",
         )
 
 

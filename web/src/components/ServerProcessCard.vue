@@ -18,12 +18,12 @@ const stopVisible = ref(false);
 const restartForm = reactive({
   shutdown_seconds: 30,
   restart_delay_seconds: 10,
-  message: "Server restart in 30 seconds",
+  message: "服务器将在 30 秒后重启，请提前回到安全位置。",
   confirmation: "",
 });
 const stopForm = reactive({
   shutdown_seconds: 30,
-  message: "Server shutting down in 30 seconds",
+  message: "服务器将在 30 秒后关闭，请提前回到安全位置。",
   keep_stopped: true,
   confirmation: "",
 });
@@ -51,6 +51,31 @@ const stateType = computed(
 const stateLabel = computed(() =>
   t(`serverProcess.states.${status.value.state || "stopped"}`),
 );
+const scheduledRestartLabel = computed(() => {
+  const value = status.value;
+  const time = value.scheduled_restart_time || "04:00";
+  switch (value.scheduled_restart_frequency || "daily") {
+    case "interval_days":
+      return t("serverProcess.intervalDaysAt", {
+        days: value.scheduled_restart_interval_days || 1,
+        time,
+      });
+    case "weekly":
+      return t("serverProcess.weeklyAt", {
+        weekday: t(
+          `rconManager.weekday.${value.scheduled_restart_weekday ?? 1}`,
+        ),
+        time,
+      });
+    case "monthly":
+      return t("serverProcess.monthlyAt", {
+        day: value.scheduled_restart_day_of_month || 1,
+        time,
+      });
+    default:
+      return t("serverProcess.dailyAt", { time });
+  }
+});
 const uptime = computed(() => {
   const seconds = Number(status.value.uptime_seconds || 0);
   const days = Math.floor(seconds / 86400);
@@ -60,6 +85,8 @@ const uptime = computed(() => {
 });
 const formatTime = (value) =>
   value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—";
+const formatServerTime = (value) =>
+  value ? String(value).replace("T", " ").slice(0, 19) : "—";
 
 const showError = (data, fallback) =>
   message.error(data?.error || fallback || t("serverProcess.actionFailed"));
@@ -222,9 +249,38 @@ onBeforeUnmount(() => {
         >{{ status.restart_count || 0 }} /
         {{ status.recent_crash_count || 0 }}</n-descriptions-item
       >
+      <n-descriptions-item :label="$t('serverProcess.scheduledRestart')">
+        <n-tag
+          size="small"
+          :type="status.scheduled_restart_enabled ? 'success' : 'default'"
+        >
+          {{
+            status.scheduled_restart_enabled
+              ? scheduledRestartLabel
+              : $t("serverProcess.disabled")
+          }}
+        </n-tag>
+      </n-descriptions-item>
+      <n-descriptions-item :label="$t('serverProcess.nextScheduledRestart')">
+        {{ formatServerTime(status.next_scheduled_restart_at) }}
+      </n-descriptions-item>
+      <n-descriptions-item :label="$t('serverProcess.scheduleTimezone')">
+        {{ status.scheduled_restart_timezone || "—" }}
+      </n-descriptions-item>
+      <n-descriptions-item :label="$t('serverProcess.lastScheduledRestart')">
+        {{ formatServerTime(status.last_scheduled_restart_at) }}
+      </n-descriptions-item>
     </n-descriptions>
     <n-text v-if="status.last_error" type="error" class="error-text">
       {{ $t("serverProcess.lastError") }}: {{ status.last_error }}
+    </n-text>
+    <n-text
+      v-if="status.last_scheduled_restart_error"
+      type="warning"
+      class="error-text"
+    >
+      {{ $t("serverProcess.lastScheduledRestartError") }}:
+      {{ status.last_scheduled_restart_error }}
     </n-text>
 
     <n-flex v-if="isAdmin" class="mt-4" :size="10">

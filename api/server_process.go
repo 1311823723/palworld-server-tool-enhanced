@@ -122,7 +122,7 @@ func stopServer(manager ServerProcessManager) gin.HandlerFunc {
 		keepStopped := true
 		request := stopServerRequest{
 			ShutdownSeconds: settings.GracefulShutdownSeconds,
-			Message:         "Server shutting down in 30 seconds",
+			Message:         "服务器将在 30 秒后关闭，请提前回到安全位置。",
 			KeepStopped:     &keepStopped,
 		}
 		if err := c.ShouldBindJSON(&request); err != nil {

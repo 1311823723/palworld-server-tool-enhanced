@@ -113,7 +113,24 @@ python sav_cli.py -f /path/to/Level.sav --request http://host/api/ --token TOKEN
 ```
 
 `Players/` is expected next to `Level.sav`; per-player item containers are read
-from those saves.
+from those saves. Request mode also uploads a normalized snapshot to
+`PUT /api/snapshot`. The snapshot includes metadata, capabilities and warnings,
+base camps, base workers, recognized item containers and deduplicated inventory
+slots. It also includes strictly linked breeding farms, assigned parent slots,
+farm-owned cake containers, produced egg MapObjects and an explicit breeding
+capability matrix. A missing or version-dependent value is emitted as `null`
+instead of a fabricated zero. Breeding progress and egg type are currently
+unavailable; the parser does not predict them from parent species.
+
+For privacy-safe structural diagnostics, run:
+
+```bash
+python3 ../script/diagnose_save.py /path/to/Level.sav
+```
+
+The diagnostic prints only file metadata, counts, field-presence flags and a
+short hash prefix. It does not print player names, guild names, item contents,
+passwords or tokens.
 
 ## Output shape
 
@@ -151,6 +168,8 @@ Fields the backend fills itself (`user_id`, `steam_id`, `ip`, `ping`,
 
 - `sav_cli.py` — CLI entrypoint (argparse, JSON-out or PUT).
 - `structurer.py` — decode + structure players / pals / guilds / base camps.
+- `snapshot.py` — normalized atomic snapshot payload and inventory indexes.
+- `breeding.py` — strict breeding farm, parent, cake and produced-egg references.
 - `world_types.py` — flatten decoded property trees into the output shape.
 - `logger.py` — minimal `log(text, level)`.
 

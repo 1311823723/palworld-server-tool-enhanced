@@ -23,8 +23,10 @@ import ShutdownDialog from "@/components/ShutdownDialog.vue";
 import WhitelistManager from "@/components/WhitelistManager.vue";
 import MapView from "@/views/PcHome/component/MapView.vue";
 import playerToGuildStore from "@/stores/model/playerToGuild";
+import { useRouter } from "vue-router";
 
 const emit = defineEmits(["open-config"]);
+const router = useRouter();
 
 const { t, locale } = useI18n();
 
@@ -255,6 +257,9 @@ const openAuthenticated = (target) => {
 };
 
 const adminOptions = computed(() => [
+  { label: t("enhanced.worldSettings"), key: "world-settings" },
+  { label: t("enhanced.inventory"), key: "inventory" },
+  { label: t("enhanced.breedingFarms"), key: "breeding-farms" },
   { label: t("configuration.title"), key: "settings" },
   { label: t("button.rcon"), key: "rcon" },
   { label: t("button.backup"), key: "backup" },
@@ -270,6 +275,7 @@ const adminOptions = computed(() => [
 ]);
 
 const handleAdminAction = (key) => {
+  if (key === "world-settings" || key === "inventory" || key === "breeding-farms") router.push(`/${key}`);
   if (key === "settings") {
     if (checkAuthToken()) emit("open-config");
     else {
@@ -585,6 +591,9 @@ onBeforeUnmount(() => {
                   strong
                 >
                   {{ $t("button.map") }}
+                </n-button>
+                <n-button v-if="!isShowDetail" class="flex-1" secondary strong @click="router.push('/work-pals')">
+                  {{ $t("enhanced.workPals") }}
                 </n-button>
               </n-button-group>
             </div>

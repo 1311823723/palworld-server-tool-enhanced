@@ -3,6 +3,7 @@ package supervisor
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -69,12 +70,14 @@ type fakeDetector struct{ pid atomic.Int64 }
 func (detector *fakeDetector) FindPalServer() (int, error) { return int(detector.pid.Load()), nil }
 
 type fakeController struct {
-	mu           sync.Mutex
-	events       []string
-	saveErr      error
-	shutdownErr  error
-	saveStarted  chan struct{}
-	saveContinue chan struct{}
+	mu              sync.Mutex
+	events          []string
+	saveErr         error
+	shutdownErr     error
+	shutdownSeconds int
+	shutdownMessage string
+	saveStarted     chan struct{}
+	saveContinue    chan struct{}
 }
 
 func (controller *fakeController) Save() error {
@@ -93,10 +96,12 @@ func (controller *fakeController) Save() error {
 	return controller.saveErr
 }
 
-func (controller *fakeController) Shutdown(_ int, _ string) error {
+func (controller *fakeController) Shutdown(seconds int, message string) error {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 	controller.events = append(controller.events, "shutdown")
+	controller.shutdownSeconds = seconds
+	controller.shutdownMessage = message
 	return controller.shutdownErr
 }
 
@@ -104,6 +109,12 @@ func (controller *fakeController) Events() []string {
 	controller.mu.Lock()
 	defer controller.mu.Unlock()
 	return append([]string(nil), controller.events...)
+}
+
+func (controller *fakeController) ShutdownRequest() (int, string) {
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	return controller.shutdownSeconds, controller.shutdownMessage
 }
 
 func testConfig(watchdog bool) config.ServerProcessConfig {
@@ -319,5 +330,334 @@ func TestConcurrentRestartRequestsAllowOnlyOne(t *testing.T) {
 	}
 	if got := controller.Events(); len(got) != 2 {
 		t.Fatalf("controller calls = %v, want one save and one shutdown", got)
+	}
+}
+
+func TestSettingsTransactionOrderWaitsForExitBeforeApply(t *testing.T) {
+	first := newFakeProcess(550)
+	second := newFakeProcess(551)
+	var eventMu sync.Mutex
+	events := make([]string, 0)
+	record := func(event string) {
+		eventMu.Lock()
+		events = append(events, event)
+		eventMu.Unlock()
+	}
+	first.onWait = func() { record("wait") }
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		if attempt == 1 {
+			return first, nil
+		}
+		record("start")
+		return second, nil
+	}}
+	controller := &fakeController{}
+	s := New(testConfig(true), launcher, &fakeDetector{}, controller)
+	defer s.Close()
+	if _, err := s.Start(); err != nil {
+		t.Fatalf("initial start: %v", err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(
+			RestartOptions{ShutdownSeconds: 1, RestartDelay: time.Millisecond, Message: "settings"},
+			TransactionHooks{
+				AfterExit:   func() error { record("apply"); return nil },
+				HealthCheck: func(context.Context) error { record("health"); return nil },
+			},
+		)
+		result <- err
+	}()
+	waitFor(t, func() bool { return len(controller.Events()) == 2 })
+	if launcher.Count() != 1 {
+		t.Fatal("settings transaction started before old process exit")
+	}
+	first.Exit(0, nil)
+	if err := <-result; err != nil {
+		t.Fatalf("settings transaction: %v", err)
+	}
+	if got := controller.Events(); len(got) != 2 || got[0] != "save" || got[1] != "shutdown" {
+		t.Fatalf("controller order = %v", got)
+	}
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	want := []string{"wait", "apply", "start", "health"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("transaction events = %v, want %v", events, want)
+	}
+}
+
+func TestSettingsTransactionStartFailureRollsBackAndStartsOldSettingsOnce(t *testing.T) {
+	first := newFakeProcess(560)
+	restored := newFakeProcess(562)
+	events := make([]string, 0)
+	var eventMu sync.Mutex
+	record := func(event string) {
+		eventMu.Lock()
+		events = append(events, event)
+		eventMu.Unlock()
+	}
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		switch attempt {
+		case 1:
+			return first, nil
+		case 2:
+			record("new-start-failed")
+			return nil, errors.New("new settings failed")
+		default:
+			record("old-start")
+			return restored, nil
+		}
+	}}
+	s := New(testConfig(true), launcher, &fakeDetector{}, &fakeController{})
+	defer s.Close()
+	_, _ = s.Start()
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(
+			RestartOptions{RestartDelay: time.Millisecond},
+			TransactionHooks{
+				AfterExit: func() error { record("apply"); return nil },
+				Rollback:  func() error { record("rollback"); return nil },
+			},
+		)
+		result <- err
+	}()
+	waitFor(t, func() bool { return s.Status().State == StateStopping })
+	first.Exit(0, nil)
+	if err := <-result; err == nil {
+		t.Fatal("start failure should be reported after rollback")
+	}
+	if launcher.Count() != 3 || !s.Status().Running {
+		t.Fatalf("launches=%d status=%#v", launcher.Count(), s.Status())
+	}
+	eventMu.Lock()
+	defer eventMu.Unlock()
+	want := []string{"apply", "new-start-failed", "rollback", "old-start"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("rollback events = %v, want %v", events, want)
+	}
+}
+
+func TestSettingsTransactionWriteFailureRestartsPreviousSettings(t *testing.T) {
+	first := newFakeProcess(565)
+	restored := newFakeProcess(566)
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		if attempt == 1 {
+			return first, nil
+		}
+		return restored, nil
+	}}
+	s := New(testConfig(true), launcher, &fakeDetector{}, &fakeController{})
+	defer s.Close()
+	_, _ = s.Start()
+	rolledBack := false
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(RestartOptions{}, TransactionHooks{
+			AfterExit: func() error { return errors.New("atomic write failed") },
+			Rollback:  func() error { rolledBack = true; return nil },
+		})
+		result <- err
+	}()
+	waitFor(t, func() bool { return s.Status().State == StateStopping })
+	first.Exit(0, nil)
+	if err := <-result; err == nil || !strings.Contains(err.Error(), "previous settings were restored") {
+		t.Fatalf("transaction error = %v", err)
+	}
+	if !rolledBack || launcher.Count() != 2 || !s.Status().Running || s.Status().PID != restored.PID() {
+		t.Fatalf("rolledBack=%v launches=%d status=%#v", rolledBack, launcher.Count(), s.Status())
+	}
+}
+
+func TestSettingsTransactionHealthFailureStopsNewProcessThenRollsBack(t *testing.T) {
+	first := newFakeProcess(570)
+	invalid := newFakeProcess(571)
+	restored := newFakeProcess(572)
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		switch attempt {
+		case 1:
+			return first, nil
+		case 2:
+			return invalid, nil
+		default:
+			return restored, nil
+		}
+	}}
+	controller := &fakeController{}
+	s := New(testConfig(true), launcher, &fakeDetector{}, controller)
+	defer s.Close()
+	_, _ = s.Start()
+	rolledBack := make(chan struct{}, 1)
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(
+			RestartOptions{RestartDelay: time.Millisecond},
+			TransactionHooks{
+				AfterExit:   func() error { return nil },
+				Rollback:    func() error { rolledBack <- struct{}{}; return nil },
+				HealthCheck: func(context.Context) error { return errors.New("unhealthy") },
+			},
+		)
+		result <- err
+	}()
+	waitFor(t, func() bool { return len(controller.Events()) == 2 })
+	first.Exit(0, nil)
+	waitFor(t, func() bool { return len(controller.Events()) == 3 })
+	select {
+	case <-rolledBack:
+		t.Fatal("rollback ran before the failed process exited")
+	default:
+	}
+	invalid.Exit(1, errors.New("unhealthy process stopped"))
+	if err := <-result; err == nil || !strings.Contains(err.Error(), "previous settings were restored") {
+		t.Fatalf("transaction error = %v", err)
+	}
+	select {
+	case <-rolledBack:
+	default:
+		t.Fatal("rollback was not called")
+	}
+	if launcher.Count() != 3 || !s.Status().Running || s.Status().PID != restored.PID() {
+		t.Fatalf("launches=%d status=%#v", launcher.Count(), s.Status())
+	}
+}
+
+func TestNextDailyRestartUsesLocalTime(t *testing.T) {
+	location := time.FixedZone("UTC+8", 8*60*60)
+	before := time.Date(2026, time.July, 22, 3, 59, 0, 0, location)
+	next, err := nextDailyRestart(before, "04:00")
+	if err != nil {
+		t.Fatalf("next daily restart: %v", err)
+	}
+	want := time.Date(2026, time.July, 22, 4, 0, 0, 0, location)
+	if !next.Equal(want) {
+		t.Fatalf("next restart = %s, want %s", next, want)
+	}
+
+	atTime := time.Date(2026, time.July, 22, 4, 0, 0, 0, location)
+	next, err = nextDailyRestart(atTime, "04:00")
+	if err != nil {
+		t.Fatalf("next daily restart at boundary: %v", err)
+	}
+	want = time.Date(2026, time.July, 23, 4, 0, 0, 0, location)
+	if !next.Equal(want) {
+		t.Fatalf("boundary next restart = %s, want %s", next, want)
+	}
+}
+
+func TestNextScheduledRestartFrequencies(t *testing.T) {
+	location := time.FixedZone("UTC+8", 8*60*60)
+	base := ProcessConfigFrom(config.Default().ServerProcess)
+	base.ScheduledRestartTime = "04:00"
+
+	tests := []struct {
+		name      string
+		now       time.Time
+		configure func(*ProcessConfig)
+		want      time.Time
+	}{
+		{
+			name: "every three days from start date",
+			now:  time.Date(2026, time.July, 22, 3, 0, 0, 0, location),
+			configure: func(value *ProcessConfig) {
+				value.ScheduledRestartFrequency = config.ScheduledRestartIntervalDays
+				value.ScheduledRestartIntervalDays = 3
+				value.ScheduledRestartStartDate = "2026-07-20"
+			},
+			want: time.Date(2026, time.July, 23, 4, 0, 0, 0, location),
+		},
+		{
+			name: "weekly after this week occurrence",
+			now:  time.Date(2026, time.July, 20, 5, 0, 0, 0, location),
+			configure: func(value *ProcessConfig) {
+				value.ScheduledRestartFrequency = config.ScheduledRestartWeekly
+				value.ScheduledRestartWeekday = int(time.Monday)
+			},
+			want: time.Date(2026, time.July, 27, 4, 0, 0, 0, location),
+		},
+		{
+			name: "monthly clamps to final day",
+			now:  time.Date(2026, time.February, 1, 0, 0, 0, 0, location),
+			configure: func(value *ProcessConfig) {
+				value.ScheduledRestartFrequency = config.ScheduledRestartMonthly
+				value.ScheduledRestartDayOfMonth = 31
+			},
+			want: time.Date(2026, time.February, 28, 4, 0, 0, 0, location),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value := base
+			test.configure(&value)
+			next, err := nextScheduledRestart(test.now, value)
+			if err != nil {
+				t.Fatalf("next scheduled restart: %v", err)
+			}
+			if !next.Equal(test.want) {
+				t.Fatalf("next restart = %s, want %s", next, test.want)
+			}
+		})
+	}
+}
+
+func TestScheduledRestartReusesGracefulStateMachine(t *testing.T) {
+	first := newFakeProcess(601)
+	second := newFakeProcess(602)
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		if attempt == 1 {
+			return first, nil
+		}
+		return second, nil
+	}}
+	controller := &fakeController{}
+	value := testConfig(false)
+	value.ScheduledRestartEnabled = true
+	value.ScheduledRestartFrequency = config.ScheduledRestartWeekly
+	value.ScheduledRestartWeekday = int(time.Wednesday)
+	value.ScheduledRestartTime = "04:00"
+	value.GracefulShutdownSeconds = 30
+	value.GracefulShutdownMessage = "服务器将在 30 秒后重启，请提前回到安全位置。"
+	s := New(value, launcher, &fakeDetector{}, controller)
+	defer s.Close()
+	if _, err := s.Start(); err != nil {
+		t.Fatalf("initial start: %v", err)
+	}
+
+	triggeredAt := time.Date(2026, time.July, 22, 4, 0, 0, 0, time.Local)
+	s.executeScheduledRestart(triggeredAt)
+	if got := controller.Events(); len(got) != 2 || got[0] != "save" || got[1] != "shutdown" {
+		t.Fatalf("scheduled controller order = %v, want save then shutdown", got)
+	}
+	seconds, message := controller.ShutdownRequest()
+	if seconds != 30 || message != "服务器将在 30 秒后重启，请提前回到安全位置。" {
+		t.Fatalf("scheduled shutdown = (%d, %q)", seconds, message)
+	}
+	status := s.Status()
+	if status.LastScheduledRestartAt == nil || !status.LastScheduledRestartAt.Equal(triggeredAt) || status.LastScheduledRestartError != "" {
+		t.Fatalf("scheduled status = %#v", status)
+	}
+	if status.ScheduledRestartFrequency != config.ScheduledRestartWeekly || status.ScheduledRestartWeekday != int(time.Wednesday) {
+		t.Fatalf("scheduled frequency status = %#v", status)
+	}
+	if launcher.Count() != 1 {
+		t.Fatal("scheduled restart must wait for the old process to exit")
+	}
+	first.Exit(0, nil)
+	waitFor(t, func() bool { return launcher.Count() == 2 })
+}
+
+func TestScheduledRestartDoesNotStartManuallyStoppedServer(t *testing.T) {
+	launcher := &fakeLauncher{startFn: func(int) (ManagedProcess, error) { return newFakeProcess(701), nil }}
+	value := testConfig(false)
+	value.ScheduledRestartEnabled = true
+	s := New(value, launcher, &fakeDetector{}, &fakeController{})
+	defer s.Close()
+
+	s.executeScheduledRestart(time.Now())
+	status := s.Status()
+	if launcher.Count() != 0 || !strings.Contains(status.LastScheduledRestartError, ErrNotRunning.Error()) {
+		t.Fatalf("stopped scheduled restart status = %#v, launches=%d", status, launcher.Count())
 	}
 }

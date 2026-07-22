@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/zaigie/palworld-server-tool/api"
@@ -24,6 +26,8 @@ import (
 	"github.com/zaigie/palworld-server-tool/internal/system"
 	"github.com/zaigie/palworld-server-tool/internal/task"
 	"github.com/zaigie/palworld-server-tool/internal/tool"
+	"github.com/zaigie/palworld-server-tool/internal/worldsettings"
+	"github.com/zaigie/palworld-server-tool/service"
 )
 
 var (
@@ -96,6 +100,23 @@ func main() {
 
 	db := database.GetDB()
 	defer db.Close()
+	settingsManager := worldsettings.NewManager(configStore, serverSupervisor, func(ctx context.Context) error {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var lastErr error
+		for {
+			if _, err := tool.Info(); err == nil {
+				return nil
+			} else {
+				lastErr = err
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("official REST API did not become healthy: %w", lastErr)
+			case <-ticker.C:
+			}
+		}
+	}, service.NewWorldSettingsAuditStore(db))
 
 	docs.SwaggerInfo.Title = "Palworld Manage API"
 	docs.SwaggerInfo.Version = version
@@ -112,7 +133,7 @@ func main() {
 	startScheduler := func() {
 		go task.Schedule(db)
 	}
-	api.RegisterRouterWithSupervisor(router, startScheduler, serverSupervisor)
+	api.RegisterRouterWithManagers(router, startScheduler, serverSupervisor, settingsManager)
 
 	assetsFS, _ := fs.Sub(assets, "assets")
 	router.StaticFS("/assets", http.FS(assetsFS))
@@ -120,11 +141,15 @@ func main() {
 	mapTilesFS, _ := fs.Sub(mapTiles, "map")
 	router.StaticFS("/map/tiles", http.FS(mapTilesFS))
 
-	router.GET("/", func(c *gin.Context) {
+	serveWebApp := func(c *gin.Context) {
 		c.Writer.WriteHeader(http.StatusOK)
 		file, _ := indexHTML.ReadFile("index.html")
 		c.Writer.Write(file)
-	})
+	}
+	router.GET("/", serveWebApp)
+	for _, route := range []string{"/work-pals", "/inventory", "/world-settings", "/breeding-farms"} {
+		router.GET(route, serveWebApp)
+	}
 	router.GET("/pal-conf", func(c *gin.Context) {
 		c.Writer.WriteHeader(http.StatusOK)
 		file, _ := palConfHTML.ReadFile("pal-conf.html")
