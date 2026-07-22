@@ -76,43 +76,59 @@ func initializeConfig(c *gin.Context, onInitialized func()) {
 }
 
 func getConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, config.Current())
+	c.JSON(http.StatusOK, config.Current().Redacted())
 }
 
 func putConfig(c *gin.Context) {
-	var request updateConfigRequest
-	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	previous := config.Current()
-	if previous.Web.PortSource != config.WebPortOverrideNone && request.Settings.Web.Port != previous.Web.Port {
-		c.JSON(http.StatusConflict, gin.H{
-			"error": "web port is controlled by the active " + string(previous.Web.PortSource) + " override",
-		})
-		return
-	}
-	request.Settings.Web.PortSource = previous.Web.PortSource
-	if err := config.CurrentStore().Update(request.Settings, request.NewPassword); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	token := ""
-	if request.NewPassword != "" {
-		var err error
-		token, err = auth.GenerateToken()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	putConfigWithSupervisor(nil)(c)
+}
+
+func putConfigWithSupervisor(processManager ServerProcessManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request updateConfigRequest
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		previous := config.Current()
+		if request.Settings.Rcon.Password == "" {
+			request.Settings.Rcon.Password = previous.Rcon.Password
+		}
+		if request.Settings.Rest.Password == "" {
+			request.Settings.Rest.Password = previous.Rest.Password
+		}
+		if previous.Web.PortSource != config.WebPortOverrideNone && request.Settings.Web.Port != previous.Web.Port {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "web port is controlled by the active " + string(previous.Web.PortSource) + " override",
+			})
+			return
+		}
+		request.Settings.Web.PortSource = previous.Web.PortSource
+		request.Settings.ServerProcess = config.NormalizeServerProcess(request.Settings.ServerProcess)
+		if err := config.CurrentStore().Update(request.Settings, request.NewPassword); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if processManager != nil {
+			processManager.UpdateConfig(config.Current().ServerProcess)
+		}
+		token := ""
+		if request.NewPassword != "" {
+			var err error
+			token, err = auth.GenerateToken()
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		restartFields := configRestartFields(previous, request.Settings)
+		c.JSON(http.StatusOK, gin.H{
+			"success":          true,
+			"token":            token,
+			"restart_required": len(restartFields) > 0,
+			"restart_fields":   restartFields,
+		})
 	}
-	restartFields := configRestartFields(previous, request.Settings)
-	c.JSON(http.StatusOK, gin.H{
-		"success":          true,
-		"token":            token,
-		"restart_required": len(restartFields) > 0,
-		"restart_fields":   restartFields,
-	})
 }
 
 func configRestartFields(previous, next config.Config) []string {
@@ -318,6 +334,9 @@ func testRconConfig(c *gin.Context) {
 		return
 	}
 	settings := request.Rcon
+	if settings.Password == "" {
+		settings.Password = config.Current().Rcon.Password
+	}
 	if strings.TrimSpace(settings.Address) == "" || settings.Password == "" {
 		c.JSON(http.StatusOK, configStatusResponse{Status: "unconfigured", Message: "RCON address or password is empty"})
 		return

@@ -1,5 +1,6 @@
 <script setup>
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
+import dayjs from "dayjs";
 import { useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import ApiService from "@/service/api";
@@ -64,8 +65,54 @@ const emptySettings = () => ({
     backup_keep_days: 7,
   },
   manage: { kick_non_whitelist: false },
+  inventory_visibility: { mode: "admin", allow_public_summary: false },
+  server_process: {
+    enabled: false,
+    executable_path: "",
+    working_directory: "",
+    arguments: [],
+    watchdog_enabled: false,
+    scheduled_restart_enabled: false,
+    scheduled_restart_frequency: "daily",
+    scheduled_restart_time: "04:00",
+    scheduled_restart_interval_days: 2,
+    scheduled_restart_start_date: dayjs().format("YYYY-MM-DD"),
+    scheduled_restart_weekday: 1,
+    scheduled_restart_day_of_month: 1,
+    restart_delay_seconds: 10,
+    graceful_shutdown_seconds: 30,
+    graceful_shutdown_message: "服务器将在 30 秒后重启，请提前回到安全位置。",
+    max_restart_attempts: 5,
+    restart_attempt_window_seconds: 300,
+  },
 });
 const settings = ref(emptySettings());
+const scheduledRestartFieldsDisabled = computed(
+  () =>
+    !settings.value.server_process.enabled ||
+    !settings.value.server_process.scheduled_restart_enabled,
+);
+const scheduledRestartFrequencyOptions = computed(() => [
+  { label: t("configuration.scheduleDaily"), value: "daily" },
+  {
+    label: t("configuration.scheduleIntervalDays"),
+    value: "interval_days",
+  },
+  { label: t("configuration.scheduleWeekly"), value: "weekly" },
+  { label: t("configuration.scheduleMonthly"), value: "monthly" },
+]);
+const scheduledRestartWeekdayOptions = computed(() =>
+  Array.from({ length: 7 }, (_, weekday) => ({
+    value: weekday,
+    label: t(`rconManager.weekday.${weekday}`),
+  })),
+);
+const scheduledRestartMonthDayOptions = computed(() =>
+  Array.from({ length: 31 }, (_, index) => ({
+    value: index + 1,
+    label: t("configuration.dayOfMonthOption", { day: index + 1 }),
+  })),
+);
 
 const checkSaveSource = async () => {
   saveTesting.value = true;
@@ -124,7 +171,15 @@ const load = async () => {
     emit("update:show", false);
     return;
   }
-  settings.value = data.value;
+  settings.value = { ...emptySettings(), ...data.value };
+  settings.value.server_process = {
+    ...emptySettings().server_process,
+    ...(data.value.server_process || {}),
+  };
+  settings.value.inventory_visibility = {
+    ...emptySettings().inventory_visibility,
+    ...(data.value.inventory_visibility || {}),
+  };
   sourcePaths.value[settings.value.save.source_mode] = settings.value.save.path;
   newPassword.value = "";
   passwordConfirmation.value = "";
@@ -172,6 +227,15 @@ watch(
   () => props.show,
   (show) => {
     if (show) load();
+  },
+);
+
+watch(
+  () => settings.value.server_process.enabled,
+  (enabled) => {
+    if (!enabled) {
+      settings.value.server_process.scheduled_restart_enabled = false;
+    }
   },
 );
 </script>
@@ -381,6 +445,201 @@ watch(
           </n-collapse-item>
 
           <n-collapse-item
+            :title="$t('configuration.serverProcessSection')"
+            name="server-process"
+          >
+            <n-alert type="warning" :bordered="false" class="mb-3">
+              {{ $t("configuration.serverProcessSecurity") }}
+            </n-alert>
+            <n-form label-placement="top">
+              <div class="form-grid">
+                <n-form-item :label="$t('configuration.processEnabled')">
+                  <n-switch v-model:value="settings.server_process.enabled" />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.processWatchdog')">
+                  <n-switch
+                    v-model:value="settings.server_process.watchdog_enabled"
+                  />
+                </n-form-item>
+              </div>
+              <n-form-item :label="$t('configuration.executablePath')">
+                <n-input
+                  v-model:value="settings.server_process.executable_path"
+                  placeholder="D:\\Program Files\\Steam\\steamapps\\common\\PalServer\\PalServer.exe"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('configuration.workingDirectory')">
+                <n-input
+                  v-model:value="settings.server_process.working_directory"
+                  :placeholder="$t('configuration.workingDirectoryHint')"
+                />
+              </n-form-item>
+              <n-form-item :label="$t('configuration.processArguments')">
+                <n-dynamic-input
+                  v-model:value="settings.server_process.arguments"
+                  :placeholder="$t('configuration.processArgumentPlaceholder')"
+                />
+              </n-form-item>
+              <div class="form-grid">
+                <n-form-item :label="$t('configuration.restartDelaySeconds')">
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.restart_delay_seconds
+                    "
+                    :min="0"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item
+                  :label="$t('configuration.gracefulShutdownSeconds')"
+                >
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.graceful_shutdown_seconds
+                    "
+                    :min="0"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.maxRestartAttempts')">
+                  <n-input-number
+                    v-model:value="settings.server_process.max_restart_attempts"
+                    :min="1"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.restartAttemptWindow')">
+                  <n-input-number
+                    v-model:value="
+                      settings.server_process.restart_attempt_window_seconds
+                    "
+                    :min="1"
+                    class="full-width"
+                  />
+                </n-form-item>
+              </div>
+              <n-form-item :label="$t('configuration.gracefulShutdownMessage')">
+                <n-input
+                  v-model:value="
+                    settings.server_process.graceful_shutdown_message
+                  "
+                />
+              </n-form-item>
+              <n-divider title-placement="left">
+                {{ $t("configuration.scheduledRestartSection") }}
+              </n-divider>
+              <n-alert type="info" :bordered="false" class="mb-3">
+                {{ $t("configuration.scheduledRestartHint") }}
+              </n-alert>
+              <div class="form-grid">
+                <n-form-item
+                  :label="$t('configuration.scheduledRestartEnabled')"
+                >
+                  <n-switch
+                    v-model:value="
+                      settings.server_process.scheduled_restart_enabled
+                    "
+                    :disabled="!settings.server_process.enabled"
+                  />
+                </n-form-item>
+                <n-form-item
+                  :label="$t('configuration.scheduledRestartFrequency')"
+                >
+                  <n-select
+                    v-model:value="
+                      settings.server_process.scheduled_restart_frequency
+                    "
+                    :options="scheduledRestartFrequencyOptions"
+                    :disabled="scheduledRestartFieldsDisabled"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item :label="$t('configuration.scheduledRestartTime')">
+                  <n-time-picker
+                    v-model:formatted-value="
+                      settings.server_process.scheduled_restart_time
+                    "
+                    format="HH:mm"
+                    value-format="HH:mm"
+                    :seconds="false"
+                    :clearable="false"
+                    :disabled="scheduledRestartFieldsDisabled"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <template
+                  v-if="
+                    settings.server_process.scheduled_restart_frequency ===
+                    'interval_days'
+                  "
+                >
+                  <n-form-item
+                    :label="$t('configuration.scheduledRestartIntervalDays')"
+                  >
+                    <n-input-number
+                      v-model:value="
+                        settings.server_process.scheduled_restart_interval_days
+                      "
+                      :min="1"
+                      :max="3650"
+                      :disabled="scheduledRestartFieldsDisabled"
+                      class="full-width"
+                    />
+                  </n-form-item>
+                  <n-form-item
+                    :label="$t('configuration.scheduledRestartStartDate')"
+                  >
+                    <n-date-picker
+                      v-model:formatted-value="
+                        settings.server_process.scheduled_restart_start_date
+                      "
+                      type="date"
+                      format="yyyy-MM-dd"
+                      value-format="yyyy-MM-dd"
+                      :clearable="false"
+                      :disabled="scheduledRestartFieldsDisabled"
+                      class="full-width"
+                    />
+                  </n-form-item>
+                </template>
+                <n-form-item
+                  v-else-if="
+                    settings.server_process.scheduled_restart_frequency ===
+                    'weekly'
+                  "
+                  :label="$t('configuration.scheduledRestartWeekday')"
+                >
+                  <n-select
+                    v-model:value="
+                      settings.server_process.scheduled_restart_weekday
+                    "
+                    :options="scheduledRestartWeekdayOptions"
+                    :disabled="scheduledRestartFieldsDisabled"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item
+                  v-else-if="
+                    settings.server_process.scheduled_restart_frequency ===
+                    'monthly'
+                  "
+                  :label="$t('configuration.scheduledRestartDayOfMonth')"
+                  :feedback="$t('configuration.scheduledRestartMonthDayHint')"
+                >
+                  <n-select
+                    v-model:value="
+                      settings.server_process.scheduled_restart_day_of_month
+                    "
+                    :options="scheduledRestartMonthDayOptions"
+                    :disabled="scheduledRestartFieldsDisabled"
+                    class="full-width"
+                  />
+                </n-form-item>
+              </div>
+            </n-form>
+          </n-collapse-item>
+
+          <n-collapse-item
             :title="$t('configuration.tasksSection')"
             name="tasks"
           >
@@ -412,6 +671,18 @@ watch(
               <n-checkbox v-model:checked="settings.manage.kick_non_whitelist">
                 {{ $t("configuration.kickNonWhitelist") }}
               </n-checkbox>
+            </n-form>
+          </n-collapse-item>
+
+          <n-collapse-item :title="$t('configuration.inventoryVisibilitySection')" name="inventory-visibility">
+            <n-alert type="warning" :bordered="false" class="mb-3">{{ $t('configuration.inventoryVisibilityWarning') }}</n-alert>
+            <n-form label-placement="top">
+              <n-form-item :label="$t('configuration.inventoryVisibilityMode')">
+                <n-radio-group v-model:value="settings.inventory_visibility.mode">
+                  <n-space><n-radio value="admin">{{ $t('configuration.inventoryAdminOnly') }}</n-radio><n-radio value="public_summary">{{ $t('configuration.inventoryPublicSummary') }}</n-radio></n-space>
+                </n-radio-group>
+              </n-form-item>
+              <n-checkbox v-model:checked="settings.inventory_visibility.allow_public_summary" :disabled="settings.inventory_visibility.mode !== 'public_summary'">{{ $t('configuration.inventoryPublicConfirmation') }}</n-checkbox>
             </n-form>
           </n-collapse-item>
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align='center'>
-<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/zaigie/palworld-server-tool?style=for-the-badge">&nbsp;&nbsp;
+<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/1311823723/palworld-server-tool-enhanced?style=for-the-badge">&nbsp;&nbsp;
 <img alt="Go" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white">&nbsp;&nbsp;
 <img alt="Python" src="https://img.shields.io/badge/Python-FFD43B?style=for-the-badge&logo=python&logoColor=blue">&nbsp;&nbsp;
 <img alt="Vue" src="https://img.shields.io/badge/Vue%20js-35495E?style=for-the-badge&logo=vue.js&logoColor=4FC08D">
@@ -61,7 +61,7 @@ PST には Palworld サーバーの公式 REST API が必要です。カスタ�
 
 ### リリースファイル
 
-1. [GitHub Releases](https://github.com/zaigie/palworld-server-tool/releases) から OS とアーキテクチャに合うファイルをダウンロードして展開します。
+1. Enhanced 版の [GitHub Releases](https://github.com/1311823723/palworld-server-tool-enhanced/releases) から OS とアーキテクチャに合うファイルをダウンロードして展開します。
 2. Linux/macOS では `pst` と `sav_cli` に実行権限を付けて `./pst` を実行します。Windows では `start.bat` または PowerShell から `.\pst.exe` を実行します。
 3. `http://127.0.0.1:8080` または `http://サーバーアドレス:8080` を開き、PST Web 管理者を作成して Web ダイアログで設定を完了します。
 

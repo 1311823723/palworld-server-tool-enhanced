@@ -22,7 +22,9 @@ import argparse
 from urllib.parse import urljoin
 
 from logger import configure_logging, log
+import structurer
 from structurer import convert_sav, structure_player, structure_guild
+from snapshot import build_snapshot
 
 MAX_ERROR_BODY_LENGTH = 512
 
@@ -125,6 +127,13 @@ def main():
     phase_start = time.perf_counter()
     players, player_save_warnings = structure_player(dir_path, filetime=filetime)
     guilds = structure_guild(filetime)
+    snapshot = build_snapshot(
+        structurer.wsd,
+        players,
+        structurer.player_container_owners,
+        filetime,
+        player_save_warnings,
+    )
 
     # Fill save_last_online from the player's guild membership record.
     for player in players:
@@ -150,7 +159,10 @@ def main():
     if args.request == "":
         with open(output, "w", encoding="utf-8") as f:
             json.dump(
-                {"players": players, "guilds": guilds}, f, indent=4, ensure_ascii=False
+                {"players": players, "guilds": guilds, "snapshot": snapshot},
+                f,
+                indent=4,
+                ensure_ascii=False,
             )
         log(f"Wrote structured save: {output}")
     else:
@@ -158,6 +170,7 @@ def main():
 
         player_url = urljoin(args.request, "player")
         guild_url = urljoin(args.request, "guild")
+        snapshot_url = urljoin(args.request, "snapshot")
         log(f"Syncing save data: {args.request}")
         if not _sync_resource(
             requests,
@@ -165,6 +178,15 @@ def main():
             player_url,
             args.token,
             players,
+        ):
+            failed_requests += 1
+
+        if not _sync_resource(
+            requests,
+            "snapshot",
+            snapshot_url,
+            args.token,
+            snapshot,
         ):
             failed_requests += 1
 

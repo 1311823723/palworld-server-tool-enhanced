@@ -9,7 +9,7 @@
 </p>
 
 <p align='center'>
-<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/zaigie/palworld-server-tool?style=for-the-badge">&nbsp;&nbsp;
+<img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/1311823723/palworld-server-tool-enhanced?style=for-the-badge">&nbsp;&nbsp;
 <img alt="Go" src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white">&nbsp;&nbsp;
 <img alt="Python" src="https://img.shields.io/badge/Python-FFD43B?style=for-the-badge&logo=python&logoColor=blue">&nbsp;&nbsp;
 <img alt="Vue" src="https://img.shields.io/badge/Vue%20js-35495E?style=for-the-badge&logo=vue.js&logoColor=4FC08D">
@@ -61,7 +61,7 @@ Parsing `Level.sav` briefly uses about 1–3 GB of memory. Make sure the runtime
 
 ### Release archive
 
-1. Download and extract the archive for your operating system and architecture from [GitHub Releases](https://github.com/zaigie/palworld-server-tool/releases).
+1. Download and extract the archive for your operating system and architecture from the enhanced fork's [GitHub Releases](https://github.com/1311823723/palworld-server-tool-enhanced/releases).
 2. On Linux/macOS, make `pst` and `sav_cli` executable and run `./pst`. On Windows, run `start.bat` or `.\pst.exe` from PowerShell.
 3. Open `http://127.0.0.1:8080` or `http://server-address:8080`, create the PST dashboard administrator, and complete setup in the Web dialog.
 
