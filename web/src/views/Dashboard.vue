@@ -125,7 +125,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="configReady">
-    <operations-shell title="总览" subtitle="查看服务器状态、在线玩家和最近一次存档解析结果。远程访问时建议通过 Cloudflare Access 保护此页面。" :metadata="metadata" :loading="loading" @refresh="loadData">
+    <operations-shell title="总览" subtitle="查看服务器运行状态、在线玩家、世界数据与最近一次存档解析结果。" :metadata="metadata" :loading="loading" @refresh="loadData">
       <template #header-actions>
         <n-button v-if="isAdmin" type="primary" secondary @click="showConfig = true">打开配置</n-button>
       </template>
@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
         <n-gi><article class="metric-tile"><span class="metric-icon warning-icon">♡</span><div><small>需要关注的工作帕鲁</small><strong>{{ attentionCount }}</strong></div></article></n-gi>
       </n-grid>
 
-      <server-process-card v-if="isAdmin" :is-admin="isAdmin" class="process-card" />
+      <div v-if="isAdmin" class="process-card"><server-process-card :is-admin="isAdmin" /></div>
       <n-card v-else class="visitor-process-card" size="small">
         <div class="visitor-process-copy"><strong>服务器进程状态</strong><span>登录管理员账号后可查看进程、守护和启停控制。</span></div>
         <n-button type="primary" secondary @click="showLogin = true">管理员登录</n-button>
@@ -180,9 +180,9 @@ onBeforeUnmount(() => {
         <div class="tool-grid">
           <n-button secondary @click="showBroadcast = true">游戏内广播</n-button>
           <n-button secondary @click="showShutdown = true">平滑关服</n-button>
-          <n-button secondary @click="showBackup = true">备份管理</n-button>
-          <n-button secondary @click="showWhitelist = true">白名单</n-button>
-          <n-button secondary @click="showRcon = true">RCON 工具</n-button>
+          <n-button secondary tag="a" href="/server-operations?tab=backup">服务器运维</n-button>
+          <n-button secondary tag="a" href="/players?tab=whitelist">白名单</n-button>
+          <n-button secondary tag="a" href="/server-operations?tab=rcon">RCON 工具</n-button>
         </div>
       </section>
     </operations-shell>

@@ -75,9 +75,14 @@ func TestScheduledRestartConfiguration(t *testing.T) {
 		t.Fatal("invalid scheduled restart day of month must be rejected")
 	}
 
-	value.ScheduledRestartFrequency = "cron"
+	value.ScheduledRestartFrequency = ScheduledRestartCron
+	value.ScheduledRestartCron = "0 4 * * *"
+	if err := ValidateServerProcess(value); err != nil {
+		t.Fatalf("valid cron scheduled restart rejected: %v", err)
+	}
+	value.ScheduledRestartCron = "0 4 *"
 	if err := ValidateServerProcess(value); err == nil {
-		t.Fatal("unsupported scheduled restart frequency must be rejected")
+		t.Fatal("invalid cron scheduled restart must be rejected")
 	}
 
 	value = Default().ServerProcess
@@ -224,5 +229,37 @@ func TestStorePreservesLegacyWebPortWithoutPortSource(t *testing.T) {
 	}
 	if loaded.Web.PortSource != WebPortOverrideNone {
 		t.Fatalf("legacy web port source = %q, want empty", loaded.Web.PortSource)
+	}
+}
+
+func TestCronRestartRequiresExactlyFiveFieldsAndUsesPublicKey(t *testing.T) {
+	value := Default().ServerProcess
+	value.Enabled = true
+	value.ScheduledRestartEnabled = true
+	value.ScheduledRestartFrequency = ScheduledRestartCron
+	value.ScheduledRestartCron = "@daily"
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("Cron descriptor must not bypass the five-field requirement")
+	}
+
+	value.ScheduledRestartCron = "0 4 * * *"
+	value.ExecutablePath = ""
+	if err := ValidateServerProcess(value); err == nil {
+		t.Fatal("enabled process config without executable unexpectedly passed")
+	}
+
+	data, err := json.Marshal(ServerProcessConfig{ScheduledRestartCron: "0 4 * * *"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded map[string]any
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	if encoded["cron_expression"] != "0 4 * * *" {
+		t.Fatalf("cron_expression was not serialized: %s", data)
+	}
+	if _, legacy := encoded["scheduled_restart_cron"]; legacy {
+		t.Fatalf("legacy Cron JSON key leaked: %s", data)
 	}
 }

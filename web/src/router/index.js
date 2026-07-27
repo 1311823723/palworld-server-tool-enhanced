@@ -55,6 +55,12 @@ const router = createRouter({
       meta: { requiresAdmin: true },
       component: () => import("@/views/BreedingFarms.vue"),
     },
+    {
+      path: "/server-operations",
+      name: "server-operations",
+      meta: { requiresAdmin: true },
+      component: () => import("@/views/ServerOperations.vue"),
+    },
   ],
 });
 

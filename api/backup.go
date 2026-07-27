@@ -9,10 +9,66 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/zaigie/palworld-server-tool/internal/database"
+	"github.com/zaigie/palworld-server-tool/internal/logger"
 	"github.com/zaigie/palworld-server-tool/internal/tool"
 	"github.com/zaigie/palworld-server-tool/service"
 )
+
+func createBackup(manager ServerProcessManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if manager != nil && manager.ProcessStatus().Running {
+			if err := manager.SaveWorld(); err != nil {
+				c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "保存世界失败，已取消备份：" + err.Error()})
+				return
+			}
+		}
+		backup, err := createBackupRecord("manual")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "创建备份失败：" + err.Error()})
+			return
+		}
+		logger.Infof("管理员创建了手动存档备份 %s\n", backup.Path)
+		c.JSON(http.StatusOK, backup)
+	}
+}
+
+func createBackupRecord(source string) (database.Backup, error) {
+	backup := database.Backup{
+		BackupId: uuid.NewString(),
+		SaveTime: time.Now().UTC(),
+		Source:   source,
+		Status:   "failed",
+	}
+	path, err := tool.Backup()
+	if err != nil {
+		backup.Error = err.Error()
+		if recordErr := service.AddBackup(database.GetDB(), backup); recordErr != nil {
+			return backup, fmt.Errorf("%v; 保存失败记录失败: %w", err, recordErr)
+		}
+		return backup, err
+	}
+	backupDir, err := tool.GetBackupDir()
+	if err != nil {
+		backup.Path = path
+		backup.Error = err.Error()
+		_ = service.AddBackup(database.GetDB(), backup)
+		return backup, err
+	}
+	var size int64
+	if info, statErr := os.Stat(filepath.Join(backupDir, path)); statErr == nil {
+		size = info.Size()
+	}
+	backup.Path = path
+	backup.Size = size
+	backup.Status = "success"
+	if err := service.AddBackup(database.GetDB(), backup); err != nil {
+		_ = os.Remove(filepath.Join(backupDir, path))
+		return database.Backup{}, err
+	}
+	return backup, nil
+}
 
 // listBackups godoc
 //
@@ -86,6 +142,10 @@ func downloadBackup(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if backup.Status == "failed" || backup.Path == "" {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "该记录没有可下载的备份文件"})
+		return
+	}
 
 	backupDir, err := tool.GetBackupDir()
 	if err != nil {
@@ -122,6 +182,10 @@ func deleteBackup(c *gin.Context) {
 	}
 	if err := service.DeleteBackup(database.GetDB(), backupId); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if backup.Path == "" {
+		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
 	backupDir, err := tool.GetBackupDir()

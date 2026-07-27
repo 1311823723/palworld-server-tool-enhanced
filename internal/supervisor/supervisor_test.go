@@ -585,6 +585,15 @@ func TestNextScheduledRestartFrequencies(t *testing.T) {
 			},
 			want: time.Date(2026, time.February, 28, 4, 0, 0, 0, location),
 		},
+		{
+			name: "advanced cron",
+			now:  time.Date(2026, time.July, 22, 3, 0, 0, 0, location),
+			configure: func(value *ProcessConfig) {
+				value.ScheduledRestartFrequency = config.ScheduledRestartCron
+				value.ScheduledRestartCron = "15 4 * * *"
+			},
+			want: time.Date(2026, time.July, 22, 4, 15, 0, 0, location),
+		},
 	}
 
 	for _, test := range tests {

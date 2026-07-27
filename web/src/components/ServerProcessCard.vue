@@ -31,7 +31,7 @@ let pollTimer;
 let disposed = false;
 
 const busy = computed(() =>
-  ["starting", "stopping", "restart_waiting", "restarting"].includes(
+  ["starting", "stopping", "restart_waiting", "restarting", "updating"].includes(
     status.value.state,
   ),
 );
@@ -72,6 +72,8 @@ const scheduledRestartLabel = computed(() => {
         day: value.scheduled_restart_day_of_month || 1,
         time,
       });
+    case "cron":
+      return `Cron：${value.scheduled_restart_cron || "—"}`;
     default:
       return t("serverProcess.dailyAt", { time });
   }

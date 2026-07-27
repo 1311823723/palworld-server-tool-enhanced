@@ -47,5 +47,6 @@ structure.json
 .idea
 
 backups/
+/logs/
 /savs/
 map_data_cn.js

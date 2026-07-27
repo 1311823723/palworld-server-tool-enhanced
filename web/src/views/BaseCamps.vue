@@ -111,6 +111,9 @@ onMounted(load);
     :loading="loading"
     @refresh="load"
   >
+    <template #header-actions>
+      <n-button secondary tag="a" href="/work-pals">查看工作帕鲁</n-button>
+    </template>
     <n-alert v-if="!isAdmin" type="info" :bordered="false" class="notice">
       当前以访客身份浏览。登录管理员账号后可以修改据点名称。
     </n-alert>

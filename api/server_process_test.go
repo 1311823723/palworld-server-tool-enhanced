@@ -37,6 +37,15 @@ func (manager *fakeServerProcessManager) SetWatchdog(enabled bool) supervisor.St
 	return manager.status
 }
 func (manager *fakeServerProcessManager) UpdateConfig(config.ServerProcessConfig) {}
+func (manager *fakeServerProcessManager) ServerUpdateStatus() supervisor.UpdateStatus {
+	return supervisor.UpdateStatus{}
+}
+func (manager *fakeServerProcessManager) CheckServerUpdate() (supervisor.UpdateStatus, error) {
+	return supervisor.UpdateStatus{}, nil
+}
+func (manager *fakeServerProcessManager) ApplyServerUpdate(supervisor.RestartOptions) (supervisor.Status, error) {
+	return manager.status, nil
+}
 
 func newAuthenticatedProcessRouter(t *testing.T, manager ServerProcessManager) (*gin.Engine, string, *config.Store) {
 	t.Helper()
@@ -66,6 +75,17 @@ func TestServerProcessAPIRequiresAdministratorJWT(t *testing.T) {
 	response := performJSONRequest(router, http.MethodGet, "/api/server/process", nil, "")
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated process status code = %d, want 401", response.Code)
+	}
+}
+
+func TestNewOperationsAPIsRequireAdministratorJWT(t *testing.T) {
+	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
+	defer store.Close()
+	for _, path := range []string{"/api/server/update", "/api/logs", "/api/audit", "/api/player-progress"} {
+		response := performJSONRequest(router, http.MethodGet, path, nil, "")
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated %s status code = %d, want 401", path, response.Code)
+		}
 	}
 }
 

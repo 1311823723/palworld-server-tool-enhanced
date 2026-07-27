@@ -79,6 +79,8 @@ const emptySettings = () => ({
     scheduled_restart_start_date: dayjs().format("YYYY-MM-DD"),
     scheduled_restart_weekday: 1,
     scheduled_restart_day_of_month: 1,
+    cron_expression: "0 4 * * *",
+    steamcmd_path: "",
     restart_delay_seconds: 10,
     graceful_shutdown_seconds: 30,
     graceful_shutdown_message: "服务器将在 30 秒后重启，请提前回到安全位置。",
@@ -100,6 +102,7 @@ const scheduledRestartFrequencyOptions = computed(() => [
   },
   { label: t("configuration.scheduleWeekly"), value: "weekly" },
   { label: t("configuration.scheduleMonthly"), value: "monthly" },
+  { label: "高级 Cron 表达式", value: "cron" },
 ]);
 const scheduledRestartWeekdayOptions = computed(() =>
   Array.from({ length: 7 }, (_, weekday) => ({
@@ -474,6 +477,12 @@ watch(
                   :placeholder="$t('configuration.workingDirectoryHint')"
                 />
               </n-form-item>
+              <n-form-item label="SteamCMD 路径（可选，用于服务器更新）">
+                <n-input
+                  v-model:value="settings.server_process.steamcmd_path"
+                  placeholder="C:\\steamcmd\\steamcmd.exe"
+                />
+              </n-form-item>
               <n-form-item :label="$t('configuration.processArguments')">
                 <n-dynamic-input
                   v-model:value="settings.server_process.arguments"
@@ -561,7 +570,6 @@ watch(
                     "
                     format="HH:mm"
                     value-format="HH:mm"
-                    :seconds="false"
                     :clearable="false"
                     :disabled="scheduledRestartFieldsDisabled"
                     class="full-width"
@@ -631,6 +639,23 @@ watch(
                       settings.server_process.scheduled_restart_day_of_month
                     "
                     :options="scheduledRestartMonthDayOptions"
+                    :disabled="scheduledRestartFieldsDisabled"
+                    class="full-width"
+                  />
+                </n-form-item>
+                <n-form-item
+                  v-else-if="
+                    settings.server_process.scheduled_restart_frequency ===
+                    'cron'
+                  "
+                  label="Cron 表达式"
+                  feedback="标准五段格式：分钟 小时 日 月 星期。例如 0 4 * * * 表示每天 04:00。"
+                >
+                  <n-input
+                    v-model:value="
+                      settings.server_process.cron_expression
+                    "
+                    placeholder="0 4 * * *"
                     :disabled="scheduledRestartFieldsDisabled"
                     class="full-width"
                   />

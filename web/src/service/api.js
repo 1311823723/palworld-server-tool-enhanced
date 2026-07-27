@@ -70,6 +70,26 @@ class ApiService extends Service {
   async setServerWatchdog(param) {
     return this.fetch(`/api/server/watchdog`).post(param).json();
   }
+  async getServerUpdate() {
+    return this.fetch(`/api/server/update`).get().json();
+  }
+  async checkServerUpdate() {
+    return this.fetch(`/api/server/update/check`).post().json();
+  }
+  async applyServerUpdate(param) {
+    return this.fetch(`/api/server/update/apply`).post(param).json();
+  }
+  async previewRestartSchedule(param) {
+    return this.fetch(`/api/server/restart-schedule/preview`).post(param).json();
+  }
+  async getRuntimeLogs(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/logs?${query}`).get().json();
+  }
+  async getOperationAudits(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/audit?${query}`).get().json();
+  }
 
   async getBaseCamps() {
     return this.fetch(`/api/base-camps`).get().json();
@@ -176,6 +196,9 @@ class ApiService extends Service {
     const { playerUid } = param;
     return this.fetch(`/api/player/${playerUid}`).get().json();
   }
+  async getPlayerProgress() {
+    return this.fetch(`/api/player-progress`).get().json();
+  }
   async kickPlayer(param) {
     const { playerUid } = param;
     return this.fetch(`/api/player/${playerUid}/kick`).post().json();
@@ -262,6 +285,9 @@ class ApiService extends Service {
   async getBackupList(param) {
     const query = this.generateQuery(param);
     return this.fetch(`/api/backup?${query}`).get().json();
+  }
+  async createBackup() {
+    return this.fetch(`/api/backup`).post().json();
   }
 
   async removeBackup(uuid) {

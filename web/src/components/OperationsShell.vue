@@ -44,11 +44,16 @@ const navigation = computed(() => [
   { label: "地图", path: "/world-map", icon: MapOutlined, public: true },
   { label: "帕鲁管理", path: "/pal-management", icon: GameController, public: true },
   { label: "据点", path: "/base-camps", icon: PublicRound, public: true },
-  { label: "工作帕鲁", path: "/work-pals", icon: GameController, public: true },
   { label: "库存", path: "/inventory", icon: ArchiveOutlined, public: false },
   { label: "配种农场", path: "/breeding-farms", icon: GameController, public: false },
+  { label: "服务器运维", path: "/server-operations", icon: GameController, public: false },
   { label: "世界设置", path: "/world-settings", icon: Settings, public: false },
 ].filter((item) => item.public || isAdmin.value));
+const primaryMobileNavigation = computed(() =>
+  navigation.value.filter((item) =>
+    ["/", "/players", "/world-map", "/pal-management", "/base-camps"].includes(item.path),
+  ),
+);
 
 const isActive = (path) =>
   path === "/" ? route.path === "/" : route.path === path || route.path.startsWith(`${path}/`);
@@ -63,6 +68,7 @@ const logout = () => {
 
 <template>
   <div class="operations-shell">
+    <a class="skip-link" href="#main-content">跳到主要内容</a>
     <aside class="operations-sidebar" aria-label="管理中心侧栏">
       <router-link to="/" class="brand" aria-label="返回 PST 总览">
         <span class="brand-mark">P</span>
@@ -126,13 +132,13 @@ const logout = () => {
     </div>
 
     <nav class="mobile-bottom-nav" aria-label="移动端导航">
-      <router-link v-for="item in navigation.slice(0, 7)" :key="item.path" :to="item.path" :class="{ active: isActive(item.path) }">
+      <router-link v-for="item in primaryMobileNavigation" :key="item.path" :to="item.path" :class="{ active: isActive(item.path) }">
         <n-icon :size="20"><component :is="item.icon" /></n-icon>
         <span>{{ item.label }}</span>
       </router-link>
-      <router-link v-if="isAdmin" to="/world-settings" :class="{ active: isActive('/world-settings') }">
-        <n-icon :size="20"><Settings /></n-icon><span>设置</span>
-      </router-link>
+      <button type="button" :class="{ active: mobileMenuOpen }" aria-label="打开更多功能" @click="mobileMenuOpen = true">
+        <n-icon :size="20"><Settings /></n-icon><span>更多</span>
+      </button>
     </nav>
   </div>
 </template>
@@ -152,6 +158,8 @@ const logout = () => {
   background-image: linear-gradient(rgba(23, 141, 121, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(23, 141, 121, .045) 1px, transparent 1px);
   background-size: 28px 28px;
 }
+.skip-link { position: fixed; top: 8px; left: 8px; z-index: 100; padding: 8px 12px; color: #fff; background: var(--ops-accent); transform: translateY(-150%); transition: transform .18s; }
+.skip-link:focus { transform: translateY(0); }
 .operations-sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; display: flex; flex-direction: column; width: 228px; padding: 22px 14px 18px; border-right: 1px solid var(--ops-line); background: rgba(255,255,255,.92); backdrop-filter: blur(18px); overflow-y: auto; overscroll-behavior: contain; }
 .brand, .mobile-brand { display: flex; align-items: center; gap: 11px; color: inherit; }
 .brand { padding: 4px 8px 25px; }
@@ -206,9 +214,9 @@ p { max-width: 65ch; margin: 0; color: var(--ops-muted); font-size: 14px; line-h
   .status-bar { margin: 0 14px; }
   .operations-content { padding: 14px 12px 82px; }
   .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 30; display: flex; align-items: stretch; gap: 2px; min-height: 68px; padding: 6px max(4px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom)); border-top: 1px solid var(--ops-line); background: rgba(255,255,255,.96); backdrop-filter: blur(18px); overflow-x: auto; }
-  .mobile-bottom-nav a { display: flex; flex: 1 0 63px; flex-direction: column; justify-content: center; align-items: center; gap: 3px; min-height: 52px; padding: 3px 4px; border-radius: 8px; color: var(--ops-muted); font-size: 10px; white-space: nowrap; }
-  .mobile-bottom-nav a.active { color: var(--ops-accent); background: var(--ops-accent-soft); }
-  .mobile-bottom-nav a:focus-visible { outline: 2px solid var(--ops-accent); outline-offset: -2px; }
+  .mobile-bottom-nav a, .mobile-bottom-nav button { display: flex; flex: 1 0 54px; flex-direction: column; justify-content: center; align-items: center; gap: 3px; min-height: 52px; padding: 3px 4px; border: 0; border-radius: 8px; color: var(--ops-muted); background: transparent; font: inherit; font-size: 10px; white-space: nowrap; }
+  .mobile-bottom-nav a.active, .mobile-bottom-nav button.active { color: var(--ops-accent); background: var(--ops-accent-soft); }
+  .mobile-bottom-nav a:focus-visible, .mobile-bottom-nav button:focus-visible { outline: 2px solid var(--ops-accent); outline-offset: -2px; }
   .mobile-menu-layer { position: fixed; inset: 0; z-index: 40; background: rgba(20,33,27,.24); }
   .mobile-drawer { position: absolute; inset: 0 auto 0 0; display: flex; flex-direction: column; gap: 5px; width: min(78vw, 300px); padding: 15px 12px; border-right: 1px solid var(--ops-line); background: var(--ops-panel); box-shadow: 14px 0 32px rgba(22,52,41,.18); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
   .mobile-drawer-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 0 8px 10px; border-bottom: 1px solid var(--ops-line); }

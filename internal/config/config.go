@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/robfig/cron/v3"
 	"go.etcd.io/bbolt"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -104,6 +105,7 @@ const (
 	ScheduledRestartIntervalDays = "interval_days"
 	ScheduledRestartWeekly       = "weekly"
 	ScheduledRestartMonthly      = "monthly"
+	ScheduledRestartCron         = "cron"
 )
 
 type ServerProcessConfig struct {
@@ -119,6 +121,8 @@ type ServerProcessConfig struct {
 	ScheduledRestartStartDate    string   `json:"scheduled_restart_start_date"`
 	ScheduledRestartWeekday      int      `json:"scheduled_restart_weekday"`
 	ScheduledRestartDayOfMonth   int      `json:"scheduled_restart_day_of_month"`
+	ScheduledRestartCron         string   `json:"cron_expression"`
+	SteamCMDPath                 string   `json:"steamcmd_path"`
 	RestartDelaySeconds          int      `json:"restart_delay_seconds"`
 	GracefulShutdownSeconds      int      `json:"graceful_shutdown_seconds"`
 	GracefulShutdownMessage      string   `json:"graceful_shutdown_message"`
@@ -169,6 +173,7 @@ func Default() Config {
 	value.ServerProcess.ScheduledRestartStartDate = time.Now().Format(time.DateOnly)
 	value.ServerProcess.ScheduledRestartWeekday = int(time.Monday)
 	value.ServerProcess.ScheduledRestartDayOfMonth = 1
+	value.ServerProcess.ScheduledRestartCron = "0 4 * * *"
 	value.ServerProcess.GracefulShutdownSeconds = 30
 	value.ServerProcess.GracefulShutdownMessage = "服务器将在 30 秒后重启，请提前回到安全位置。"
 	value.ServerProcess.MaxRestartAttempts = 5
@@ -418,6 +423,9 @@ func NormalizeServerProcess(value ServerProcessConfig) ServerProcessConfig {
 	if value.ScheduledRestartDayOfMonth == 0 {
 		value.ScheduledRestartDayOfMonth = defaults.ScheduledRestartDayOfMonth
 	}
+	if strings.TrimSpace(value.ScheduledRestartCron) == "" {
+		value.ScheduledRestartCron = defaults.ScheduledRestartCron
+	}
 	if value.MaxRestartAttempts < 1 {
 		value.MaxRestartAttempts = defaults.MaxRestartAttempts
 	}
@@ -438,15 +446,15 @@ func ValidateServerProcess(value ServerProcessConfig) error {
 	if value.MaxRestartAttempts < 1 {
 		return errors.New("server process max restart attempts must be positive")
 	}
-	if len(value.ScheduledRestartTime) != 5 || value.ScheduledRestartTime[2] != ':' {
-		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
-	}
-	if _, err := time.Parse("15:04", value.ScheduledRestartTime); err != nil {
-		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
-	}
 	switch value.ScheduledRestartFrequency {
 	case ScheduledRestartDaily:
+		if err := validateScheduledRestartTime(value.ScheduledRestartTime); err != nil {
+			return err
+		}
 	case ScheduledRestartIntervalDays:
+		if err := validateScheduledRestartTime(value.ScheduledRestartTime); err != nil {
+			return err
+		}
 		if value.ScheduledRestartIntervalDays < 1 || value.ScheduledRestartIntervalDays > 3650 {
 			return errors.New("scheduled restart interval must be between 1 and 3650 days")
 		}
@@ -454,12 +462,26 @@ func ValidateServerProcess(value ServerProcessConfig) error {
 			return errors.New("scheduled restart start date must use YYYY-MM-DD format")
 		}
 	case ScheduledRestartWeekly:
+		if err := validateScheduledRestartTime(value.ScheduledRestartTime); err != nil {
+			return err
+		}
 		if value.ScheduledRestartWeekday < int(time.Sunday) || value.ScheduledRestartWeekday > int(time.Saturday) {
 			return errors.New("scheduled restart weekday must be between 0 and 6")
 		}
 	case ScheduledRestartMonthly:
+		if err := validateScheduledRestartTime(value.ScheduledRestartTime); err != nil {
+			return err
+		}
 		if value.ScheduledRestartDayOfMonth < 1 || value.ScheduledRestartDayOfMonth > 31 {
 			return errors.New("scheduled restart day of month must be between 1 and 31")
+		}
+	case ScheduledRestartCron:
+		expression := strings.TrimSpace(value.ScheduledRestartCron)
+		if len(strings.Fields(expression)) != 5 {
+			return errors.New("cron_expression must contain exactly 5 fields: minute hour day month weekday")
+		}
+		if _, err := cron.ParseStandard(expression); err != nil {
+			return fmt.Errorf("invalid scheduled restart cron expression: %w", err)
 		}
 	default:
 		return fmt.Errorf("unsupported scheduled restart frequency %q", value.ScheduledRestartFrequency)
@@ -475,6 +497,15 @@ func ValidateServerProcess(value ServerProcessConfig) error {
 	}
 	if !value.Enabled {
 		return nil
+	}
+	if steamCMDPath := strings.TrimSpace(value.SteamCMDPath); steamCMDPath != "" {
+		info, err := os.Stat(steamCMDPath)
+		if err != nil {
+			return fmt.Errorf("steamcmd path: %w", err)
+		}
+		if !info.Mode().IsRegular() || !strings.EqualFold(filepath.Base(steamCMDPath), "steamcmd.exe") {
+			return errors.New("steamcmd path must point to steamcmd.exe")
+		}
 	}
 	path := strings.TrimSpace(value.ExecutablePath)
 	if path == "" {
@@ -505,6 +536,16 @@ func ValidateServerProcess(value ServerProcessConfig) error {
 	}
 	if !workingInfo.IsDir() {
 		return errors.New("server process working directory must be a directory")
+	}
+	return nil
+}
+
+func validateScheduledRestartTime(value string) error {
+	if len(value) != 5 || value[2] != ':' {
+		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
+	}
+	if _, err := time.Parse("15:04", value); err != nil {
+		return errors.New("scheduled restart time must use HH:MM in 24-hour format")
 	}
 	return nil
 }
