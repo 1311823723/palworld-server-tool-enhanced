@@ -138,7 +138,7 @@ onMounted(loadOverview);
         </n-gi>
       </n-grid>
 
-      <server-process-card class="mt-4" />
+      <div class="mt-4"><server-process-card /></div>
 
       <n-grid cols="1 760:2" :x-gap="16" :y-gap="16" class="mt-4">
         <n-gi>
