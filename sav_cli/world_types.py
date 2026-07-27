@@ -93,6 +93,7 @@ class Player:
                 "WeaponLoadOutContainerId": [],
             }
         )
+        self.progress = data.get("Progress") or {}
 
         self.__order = [
             "player_uid",
@@ -108,6 +109,7 @@ class Player:
             "full_stomach",
             "pals",
             "items",
+            "progress",
         ]
 
     def to_dict(self):

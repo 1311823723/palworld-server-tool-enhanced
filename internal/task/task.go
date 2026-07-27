@@ -28,13 +28,32 @@ func BackupTask(db *bbolt.DB) {
 	logger.Info("Scheduling backup...\n")
 	path, err := tool.Backup()
 	if err != nil {
+		recordErr := service.AddBackup(db, database.Backup{
+			BackupId: uuid.New().String(),
+			SaveTime: time.Now().UTC(),
+			Source:   "automatic",
+			Status:   "failed",
+			Error:    err.Error(),
+		})
+		if recordErr != nil {
+			logger.Errorf("Failed to persist automatic backup error: %v\n", recordErr)
+		}
 		logger.Errorf("%v\n", err)
 		return
+	}
+	var size int64
+	if backupDir, dirErr := tool.GetBackupDir(); dirErr == nil {
+		if info, statErr := os.Stat(filepath.Join(backupDir, path)); statErr == nil {
+			size = info.Size()
+		}
 	}
 	err = service.AddBackup(db, database.Backup{
 		BackupId: uuid.New().String(),
 		Path:     path,
 		SaveTime: time.Now(),
+		Source:   "automatic",
+		Size:     size,
+		Status:   "success",
 	})
 	if err != nil {
 		logger.Errorf("%v\n", err)

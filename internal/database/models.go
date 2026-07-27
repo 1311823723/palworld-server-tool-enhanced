@@ -333,8 +333,24 @@ type TersePlayer struct {
 
 type Player struct {
 	TersePlayer
-	Pals  []*Pal `json:"pals"`
-	Items *Items `json:"items"`
+	Pals     []*Pal          `json:"pals"`
+	Items    *Items          `json:"items"`
+	Progress *PlayerProgress `json:"progress,omitempty"`
+}
+
+type PlayerProgress struct {
+	DiscoveredPals          *int64          `json:"discovered_pals"`
+	CapturedPals            *int64          `json:"captured_pals"`
+	FastTravelPoints        *int64          `json:"fast_travel_points"`
+	ExploredAreas           *int64          `json:"explored_areas"`
+	FieldBosses             *int64          `json:"field_bosses"`
+	TowerBosses             *int64          `json:"tower_bosses"`
+	Dungeons                *int64          `json:"dungeons"`
+	OilRigClears            *int64          `json:"oil_rig_clears"`
+	TechnologyPoints        *int64          `json:"technology_points"`
+	AncientTechnologyPoints *int64          `json:"ancient_technology_points"`
+	Recipes                 *int64          `json:"recipes"`
+	Capabilities            map[string]bool `json:"capabilities"`
 }
 
 type BaseCamp struct {
@@ -404,4 +420,16 @@ type Backup struct {
 	BackupId string    `json:"backup_id"`
 	SaveTime time.Time `json:"save_time"`
 	Path     string    `json:"path"`
+	Source   string    `json:"source,omitempty"`
+	Size     int64     `json:"size,omitempty"`
+	Status   string    `json:"status,omitempty"`
+	Error    string    `json:"error,omitempty"`
+}
+
+type OperationAudit struct {
+	ID        string    `json:"id"`
+	Action    string    `json:"action"`
+	Status    string    `json:"status"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -20,6 +20,9 @@ type ServerProcessManager interface {
 	Stop(options supervisor.StopOptions) (supervisor.Status, error)
 	SetWatchdog(enabled bool) supervisor.Status
 	UpdateConfig(value config.ServerProcessConfig)
+	ServerUpdateStatus() supervisor.UpdateStatus
+	CheckServerUpdate() (supervisor.UpdateStatus, error)
+	ApplyServerUpdate(options supervisor.RestartOptions) (supervisor.Status, error)
 }
 
 type restartServerRequest struct {
@@ -36,6 +39,127 @@ type stopServerRequest struct {
 
 type watchdogRequest struct {
 	Enabled bool `json:"enabled"`
+}
+
+type applyUpdateRequest struct {
+	Confirmation        string `json:"confirmation"`
+	ShutdownSeconds     int    `json:"shutdown_seconds"`
+	RestartDelaySeconds int    `json:"restart_delay_seconds"`
+	Message             string `json:"message"`
+}
+
+type schedulePreviewRequest struct {
+	Frequency      string `json:"frequency"`
+	Time           string `json:"time"`
+	IntervalDays   int    `json:"interval_days"`
+	StartDate      string `json:"start_date"`
+	Weekday        int    `json:"weekday"`
+	DayOfMonth     int    `json:"day_of_month"`
+	CronExpression string `json:"cron_expression"`
+}
+
+func previewServerRestartSchedule(c *gin.Context) {
+	var request schedulePreviewRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	value := config.Current().ServerProcess
+	value.ScheduledRestartFrequency = request.Frequency
+	value.ScheduledRestartTime = request.Time
+	value.ScheduledRestartIntervalDays = request.IntervalDays
+	value.ScheduledRestartStartDate = request.StartDate
+	value.ScheduledRestartWeekday = request.Weekday
+	value.ScheduledRestartDayOfMonth = request.DayOfMonth
+	value.ScheduledRestartCron = request.CronExpression
+	if err := config.ValidateServerProcess(value); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	items, err := supervisor.PreviewScheduledRestarts(value, time.Now(), 3)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items":       items,
+		"description": supervisor.DescribeScheduledRestart(value),
+		"timezone":    time.Now().Location().String(),
+	})
+}
+
+func getServerUpdate(manager ServerProcessManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if manager == nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "server process supervisor is unavailable"})
+			return
+		}
+		c.JSON(http.StatusOK, manager.ServerUpdateStatus())
+	}
+}
+
+func checkServerUpdate(manager ServerProcessManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if manager == nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "server process supervisor is unavailable"})
+			return
+		}
+		status, err := manager.CheckServerUpdate()
+		if err != nil {
+			writeSupervisorError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, status)
+	}
+}
+
+func applyServerUpdate(manager ServerProcessManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if manager == nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "server process supervisor is unavailable"})
+			return
+		}
+		settings := config.Current().ServerProcess
+		request := applyUpdateRequest{
+			ShutdownSeconds:     settings.GracefulShutdownSeconds,
+			RestartDelaySeconds: settings.RestartDelaySeconds,
+			Message:             "服务器将在 30 秒后更新，请提前回到安全位置。",
+		}
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return
+		}
+		if request.Confirmation != "UPDATE" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "请输入 UPDATE 确认更新"})
+			return
+		}
+		if err := validateProcessRequest(request.ShutdownSeconds, request.RestartDelaySeconds, request.Message); err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return
+		}
+		if !manager.ProcessStatus().Running {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: supervisor.ErrNotRunning.Error()})
+			return
+		}
+		if err := manager.SaveWorld(); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "更新前保存世界失败：" + err.Error()})
+			return
+		}
+		if _, err := createBackupRecord("update"); err != nil {
+			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "更新前备份失败：" + err.Error()})
+			return
+		}
+		status, err := manager.ApplyServerUpdate(supervisor.RestartOptions{
+			ShutdownSeconds: request.ShutdownSeconds,
+			RestartDelay:    time.Duration(request.RestartDelaySeconds) * time.Second,
+			Message:         request.Message,
+		})
+		if err != nil {
+			writeSupervisorError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, status)
+	}
 }
 
 func getServerProcess(manager ServerProcessManager) gin.HandlerFunc {
@@ -189,6 +313,8 @@ func writeSupervisorError(c *gin.Context, err error) {
 	case errors.Is(err, supervisor.ErrProcessNotConfigured), errors.Is(err, supervisor.ErrNotRunning), errors.Is(err, supervisor.ErrUnsupportedPlatform):
 		status = http.StatusBadRequest
 	case errors.Is(err, supervisor.ErrInvalidConfig):
+		status = http.StatusBadRequest
+	case errors.Is(err, supervisor.ErrUpdateNotConfigured):
 		status = http.StatusBadRequest
 	}
 	c.JSON(status, ErrorResponse{Error: err.Error()})

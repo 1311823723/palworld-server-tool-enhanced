@@ -44,17 +44,55 @@ class StructurerLoggingTests(unittest.TestCase):
             ),
             mock.patch.object(structurer, "log") as log,
         ):
-            items, has_warning = structurer.getPlayerItems(
+            items, has_warning, progress = structurer.getPlayerItems(
                 "player-1", "/save/Players", {}
             )
 
         self.assertTrue(has_warning)
         self.assertTrue(all(value == [] for value in items.values()))
+        self.assertTrue(all(value is False for value in progress["capabilities"].values()))
         log.assert_called_once_with(
             "Skipped corrupted player save: PLAYER1.sav: "
             "ValueError: invalid save header",
             "WARNING",
         )
+
+    def test_player_progress_uses_null_for_missing_fields(self):
+        progress = structurer.extract_player_progress(
+            {
+                "TechnologyPoint": {"value": 23},
+                "bossTechnologyPoint": {"value": 7},
+                "UnlockedRecipeTechnologyNames": {"value": {"values": ["A", "B"]}},
+                "RecordData": {
+                    "value": {
+                        "PaldeckUnlockFlag": {
+                            "value": {
+                                "values": [
+                                    {"key": "A", "value": {"value": True}},
+                                    {"key": "B", "value": {"value": False}},
+                                ]
+                            }
+                        },
+                        "PalCaptureCount": {
+                            "value": {
+                                "values": [
+                                    {"key": "A", "value": {"value": 3}},
+                                    {"key": "B", "value": {"value": 2}},
+                                ]
+                            }
+                        },
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(progress["technology_points"], 23)
+        self.assertEqual(progress["ancient_technology_points"], 7)
+        self.assertEqual(progress["recipes"], 2)
+        self.assertEqual(progress["discovered_pals"], 1)
+        self.assertEqual(progress["captured_pals"], 5)
+        self.assertIsNone(progress["fast_travel_points"])
+        self.assertFalse(progress["capabilities"]["fast_travel_points"])
 
 
 if __name__ == "__main__":

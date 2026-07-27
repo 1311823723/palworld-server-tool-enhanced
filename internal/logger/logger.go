@@ -2,6 +2,7 @@ package logger
 
 import (
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/buffer"
@@ -41,13 +42,25 @@ func init() {
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 
-	core := zapcore.NewCore(
+	consoleCore := zapcore.NewCore(
 		newCustomEncoder(encoderConfig),
 		zapcore.Lock(os.Stdout),
 		zap.DebugLevel,
 	)
+	cores := []zapcore.Core{consoleCore, newHistoryCore()}
+	logPath := filepath.Join("logs", "pst.log")
+	if executable, err := os.Executable(); err == nil {
+		logPath = filepath.Join(filepath.Dir(executable), "logs", "pst.log")
+	}
+	if writer, err := newRotatingWriter(logPath, maxLogFileSize, maxLogFiles); err == nil {
+		cores = append(cores, zapcore.NewCore(
+			newCustomEncoder(encoderConfig),
+			zapcore.AddSync(writer),
+			zap.DebugLevel,
+		))
+	}
 
-	logger = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1)).Sugar()
+	logger = zap.New(zapcore.NewTee(cores...), zap.AddCaller(), zap.AddCallerSkip(1)).Sugar()
 }
 
 // Info logs a message at InfoLevel. The message includes any fields passed.

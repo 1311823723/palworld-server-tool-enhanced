@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
 )
@@ -30,6 +32,8 @@ const (
 	StateStopping         State = "stopping"
 	StateRestartWaiting   State = "restart_waiting"
 	StateRestarting       State = "restarting"
+	StateUpdating         State = "updating"
+	StateUpdateFailed     State = "update_failed"
 	StateCrashLoopStopped State = "crash_loop_stopped"
 	StateError            State = "error"
 )
@@ -47,6 +51,8 @@ type ProcessConfig struct {
 	ScheduledRestartStartDate    string
 	ScheduledRestartWeekday      int
 	ScheduledRestartDayOfMonth   int
+	ScheduledRestartCron         string
+	SteamCMDPath                 string
 	RestartDelay                 time.Duration
 	GracefulShutdownSeconds      int
 	GracefulShutdownMessage      string
@@ -82,6 +88,8 @@ func ProcessConfigFrom(value config.ServerProcessConfig) ProcessConfig {
 		ScheduledRestartStartDate:    value.ScheduledRestartStartDate,
 		ScheduledRestartWeekday:      value.ScheduledRestartWeekday,
 		ScheduledRestartDayOfMonth:   value.ScheduledRestartDayOfMonth,
+		ScheduledRestartCron:         value.ScheduledRestartCron,
+		SteamCMDPath:                 value.SteamCMDPath,
 		RestartDelay:                 time.Duration(value.RestartDelaySeconds) * time.Second,
 		GracefulShutdownSeconds:      value.GracefulShutdownSeconds,
 		GracefulShutdownMessage:      value.GracefulShutdownMessage,
@@ -150,6 +158,7 @@ type Status struct {
 	ScheduledRestartStartDate    string     `json:"scheduled_restart_start_date"`
 	ScheduledRestartWeekday      int        `json:"scheduled_restart_weekday"`
 	ScheduledRestartDayOfMonth   int        `json:"scheduled_restart_day_of_month"`
+	ScheduledRestartCron         string     `json:"scheduled_restart_cron"`
 	ScheduledRestartTimezone     string     `json:"scheduled_restart_timezone"`
 	NextScheduledRestartAt       *time.Time `json:"next_scheduled_restart_at,omitempty"`
 	LastScheduledRestartAt       *time.Time `json:"last_scheduled_restart_at,omitempty"`
@@ -163,6 +172,7 @@ type ServerSupervisor struct {
 	launcher   ProcessLauncher
 	detector   ProcessDetector
 	controller GameController
+	updater    ServerUpdater
 
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -192,6 +202,7 @@ type ServerSupervisor struct {
 	restartDelay              time.Duration
 	lastScheduledRestartAt    time.Time
 	lastScheduledRestartError string
+	updateStatus              UpdateStatus
 }
 
 func New(value config.ServerProcessConfig, launcher ProcessLauncher, detector ProcessDetector, controller GameController) *ServerSupervisor {
@@ -272,7 +283,7 @@ func (s *ServerSupervisor) startMode(automatic, transaction bool) (Status, error
 		s.mu.Unlock()
 		return status, ErrProcessNotConfigured
 	}
-	if s.process != nil || s.externalProcess || s.state == StateStarting || s.state == StateStopping || (!automatic && s.state == StateRestartWaiting) || (s.operationActive && !transaction) {
+	if s.process != nil || s.externalProcess || s.state == StateStarting || s.state == StateStopping || (!automatic && s.state == StateRestartWaiting) || (s.operationActive && !transaction) || (s.updateStatus.Running && !transaction) {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()
 		return status, ErrConflict
@@ -333,13 +344,17 @@ func (s *ServerSupervisor) startMode(automatic, transaction bool) (Status, error
 // save and graceful shutdown happen first, AfterExit runs only after the old
 // process actually exits, and a failed start is rolled back exactly once.
 func (s *ServerSupervisor) ApplyAndRestart(options RestartOptions, hooks TransactionHooks) (Status, error) {
+	return s.applyAndRestart(options, hooks, false)
+}
+
+func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks TransactionHooks, updateTransaction bool) (Status, error) {
 	s.mu.Lock()
 	if !s.isRunningLocked() {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()
 		return status, ErrNotRunning
 	}
-	if s.operationActive || s.transactionActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting {
+	if s.operationActive || s.transactionActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting || (s.updateStatus.Running && !updateTransaction) {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()
 		return status, ErrConflict
@@ -520,7 +535,7 @@ func (s *ServerSupervisor) restart(options RestartOptions, requester string) (St
 		s.mu.Unlock()
 		return status, ErrNotRunning
 	}
-	if s.operationActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting {
+	if s.operationActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting || s.updateStatus.Running {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()
 		return status, ErrConflict
@@ -573,7 +588,7 @@ func (s *ServerSupervisor) Stop(options StopOptions) (Status, error) {
 		s.mu.Unlock()
 		return status, ErrNotRunning
 	}
-	if s.operationActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting {
+	if s.operationActive || s.restarting || s.state == StateStopping || s.state == StateRestartWaiting || s.updateStatus.Running {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()
 		return status, ErrConflict
@@ -756,6 +771,13 @@ func nextDailyRestart(now time.Time, value string) (time.Time, error) {
 }
 
 func nextScheduledRestart(now time.Time, processConfig ProcessConfig) (time.Time, error) {
+	if processConfig.ScheduledRestartFrequency == config.ScheduledRestartCron {
+		schedule, err := cron.ParseStandard(strings.TrimSpace(processConfig.ScheduledRestartCron))
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid scheduled restart cron expression: %w", err)
+		}
+		return schedule.Next(now), nil
+	}
 	parsedTime, err := time.Parse("15:04", processConfig.ScheduledRestartTime)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid scheduled restart time %q: %w", processConfig.ScheduledRestartTime, err)
@@ -826,6 +848,65 @@ func nextScheduledRestart(now time.Time, processConfig ProcessConfig) (time.Time
 	default:
 		return time.Time{}, fmt.Errorf("unsupported scheduled restart frequency %q", processConfig.ScheduledRestartFrequency)
 	}
+}
+
+func PreviewScheduledRestarts(value config.ServerProcessConfig, now time.Time, count int) ([]time.Time, error) {
+	if count < 1 {
+		count = 3
+	}
+	if count > 10 {
+		count = 10
+	}
+	processConfig := ProcessConfigFrom(value)
+	items := make([]time.Time, 0, count)
+	cursor := now
+	for len(items) < count {
+		next, err := nextScheduledRestart(cursor, processConfig)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, next)
+		cursor = next.Add(time.Second)
+	}
+	return items, nil
+}
+
+func DescribeScheduledRestart(value config.ServerProcessConfig) string {
+	switch value.ScheduledRestartFrequency {
+	case config.ScheduledRestartDaily:
+		return "每天 " + value.ScheduledRestartTime
+	case config.ScheduledRestartIntervalDays:
+		return fmt.Sprintf("从 %s 起，每隔 %d 天的 %s", value.ScheduledRestartStartDate, value.ScheduledRestartIntervalDays, value.ScheduledRestartTime)
+	case config.ScheduledRestartWeekly:
+		weekdays := []string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}
+		if value.ScheduledRestartWeekday >= 0 && value.ScheduledRestartWeekday < len(weekdays) {
+			return weekdays[value.ScheduledRestartWeekday] + " " + value.ScheduledRestartTime
+		}
+	case config.ScheduledRestartMonthly:
+		return fmt.Sprintf("每月 %d 日 %s；短月份按当月最后一天执行", value.ScheduledRestartDayOfMonth, value.ScheduledRestartTime)
+	case config.ScheduledRestartCron:
+		fields := strings.Fields(value.ScheduledRestartCron)
+		if len(fields) == 5 {
+			minute, minuteErr := strconv.Atoi(fields[0])
+			hour, hourErr := strconv.Atoi(fields[1])
+			if minuteErr == nil && hourErr == nil {
+				at := fmt.Sprintf("%02d:%02d", hour, minute)
+				if fields[2] == "*" && fields[3] == "*" && fields[4] == "*" {
+					return "每天 " + at
+				}
+				if fields[2] == "*" && fields[3] == "*" {
+					if weekday, err := strconv.Atoi(fields[4]); err == nil && weekday >= 0 && weekday <= 6 {
+						return []string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}[weekday] + " " + at
+					}
+				}
+				if day, err := strconv.Atoi(fields[2]); err == nil && fields[3] == "*" && fields[4] == "*" {
+					return fmt.Sprintf("每月 %d 日 %s", day, at)
+				}
+			}
+		}
+		return "按标准五段 Cron 执行：" + strings.TrimSpace(value.ScheduledRestartCron)
+	}
+	return "自动重启计划"
 }
 
 func timezoneLabel(now time.Time) string {
@@ -1072,6 +1153,7 @@ func (s *ServerSupervisor) statusLocked(now time.Time) Status {
 		ScheduledRestartStartDate:    s.config.ScheduledRestartStartDate,
 		ScheduledRestartWeekday:      s.config.ScheduledRestartWeekday,
 		ScheduledRestartDayOfMonth:   s.config.ScheduledRestartDayOfMonth,
+		ScheduledRestartCron:         s.config.ScheduledRestartCron,
 		ScheduledRestartTimezone:     timezoneLabel(now),
 		LastScheduledRestartError:    s.lastScheduledRestartError,
 	}

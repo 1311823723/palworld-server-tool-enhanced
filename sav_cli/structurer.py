@@ -72,7 +72,7 @@ def structure_player(dir_path, filetime: int = -1):
         uid = c["key"]["PlayerUId"]["value"]
         sp = _save_parameter(c)
         if sp.get("IsPlayer") and sp["IsPlayer"]["value"]:
-            sp["Items"], has_warning = getPlayerItems(uid, dir_path, item_containers)
+            sp["Items"], has_warning, sp["Progress"] = getPlayerItems(uid, dir_path, item_containers)
             player_save_warnings += int(has_warning)
             players.append(Player(uid, sp).to_dict())
         else:
@@ -119,7 +119,7 @@ def getPlayerItems(player_uid, dir_path, item_containers):
         dir_path, str(player_uid).upper().replace("-", "") + ".sav"
     )
     if not os.path.exists(player_sav_file):
-        return containers_data, True
+        return containers_data, True, empty_player_progress()
 
     try:
         player_gvas = _read_gvas(player_sav_file).properties["SaveData"]["value"]
@@ -129,11 +129,13 @@ def getPlayerItems(player_uid, dir_path, item_containers):
             f"{type(e).__name__}: {e}",
             "WARNING",
         )
-        return containers_data, True
+        return containers_data, True, empty_player_progress()
+
+    progress = extract_player_progress(player_gvas)
 
     inv = player_gvas.get("InventoryInfo")
     if inv is None:
-        return containers_data, False
+        return containers_data, False, progress
 
     for key in PLAYER_CONTAINER_KEYS:
         ref = inv["value"].get(key)
@@ -167,7 +169,117 @@ def getPlayerItems(player_uid, dir_path, item_containers):
                 }
             )
         containers_data[key] = items
-    return containers_data, False
+    return containers_data, False, progress
+
+
+def _property_value(node, default=None):
+    if node is None:
+        return default
+    value = node.get("value", node) if isinstance(node, dict) else node
+    while isinstance(value, dict) and set(value.keys()) == {"value"}:
+        value = value["value"]
+    return value
+
+
+def _collection_values(node):
+    value = _property_value(node, [])
+    if isinstance(value, dict):
+        value = value.get("values", [])
+    return value if isinstance(value, list) else []
+
+
+def _map_rows(node):
+    return _collection_values(node)
+
+
+def _optional_int(container, key):
+    if not isinstance(container, dict) or key not in container:
+        return None
+    value = _property_value(container.get(key))
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _truthy_map_count(node):
+    if node is None:
+        return None
+    count = 0
+    for row in _map_rows(node):
+        value = _property_value(row.get("value")) if isinstance(row, dict) else None
+        if bool(value):
+            count += 1
+    return count
+
+
+def _summed_map_count(node):
+    if node is None:
+        return None
+    total = 0
+    for row in _map_rows(node):
+        value = _property_value(row.get("value")) if isinstance(row, dict) else None
+        try:
+            total += int(value or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def empty_player_progress():
+    fields = (
+        "discovered_pals",
+        "captured_pals",
+        "fast_travel_points",
+        "explored_areas",
+        "field_bosses",
+        "tower_bosses",
+        "dungeons",
+        "oil_rig_clears",
+        "technology_points",
+        "ancient_technology_points",
+        "recipes",
+    )
+    return {
+        **{field: None for field in fields},
+        "capabilities": {field: False for field in fields},
+    }
+
+
+def extract_player_progress(player_save):
+    progress = empty_player_progress()
+    if not isinstance(player_save, dict):
+        return progress
+    record = _property_value(player_save.get("RecordData"), {})
+    if not isinstance(record, dict):
+        record = {}
+    sources = {
+        "discovered_pals": (record, "PaldeckUnlockFlag", _truthy_map_count),
+        "captured_pals": (record, "PalCaptureCount", _summed_map_count),
+        "fast_travel_points": (record, "FastTravelPointUnlockFlag", _truthy_map_count),
+        "explored_areas": (record, "FindAreaFlagMap", _truthy_map_count),
+        "field_bosses": (record, "NormalBossDefeatFlag", _truthy_map_count),
+        "tower_bosses": (record, "TowerBossDefeatFlag", _truthy_map_count),
+    }
+    for field, (container, key, parser) in sources.items():
+        if key in container:
+            progress[field] = parser(container.get(key))
+            progress["capabilities"][field] = progress[field] is not None
+    integer_sources = {
+        "dungeons": (record, "FixedDungeonClearCount"),
+        "oil_rig_clears": (record, "OilrigClearCount"),
+        "technology_points": (player_save, "TechnologyPoint"),
+        "ancient_technology_points": (player_save, "bossTechnologyPoint"),
+    }
+    for field, (container, key) in integer_sources.items():
+        value = _optional_int(container, key)
+        if value is not None:
+            progress[field] = value
+            progress["capabilities"][field] = True
+    if "UnlockedRecipeTechnologyNames" in player_save:
+        progress["recipes"] = len(_collection_values(player_save.get("UnlockedRecipeTechnologyNames")))
+        progress["capabilities"]["recipes"] = True
+    return progress
 
 
 def structure_base_camp():
