@@ -46,8 +46,9 @@ def build_go(
 def archive_directory(source: Path, destination: Path, windows: bool) -> None:
     if windows:
         with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            for path in sorted(source.iterdir()):
-                archive.write(path, path.name)
+            for path in sorted(source.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(source))
     else:
         with tarfile.open(destination, "w:gz") as archive:
             for path in sorted(source.iterdir()):
@@ -81,6 +82,10 @@ def package(version: str, goos: str, goarch: str, sav_cli: Path, output: Path) -
         shutil.copy2(ROOT / "NOTICE", stage / "NOTICE")
         if windows:
             shutil.copy2(ROOT / "script" / "start.bat", stage / "start.bat")
+            shutil.copytree(
+                ROOT / "extras" / "PSTProductionBridge",
+                stage / "extras" / "PSTProductionBridge",
+            )
 
         extension = "zip" if windows else "tar.gz"
         package_path = output / f"pst_{version}_{platform}.{extension}"
