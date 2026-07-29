@@ -46,6 +46,7 @@ const navigation = computed(() => [
   { label: "据点", path: "/base-camps", icon: PublicRound, public: true },
   { label: "库存", path: "/inventory", icon: ArchiveOutlined, public: false },
   { label: "配种农场", path: "/breeding-farms", icon: GameController, public: false },
+  { label: "生产订单", path: "/production-orders", icon: GameController, public: false },
   { label: "服务器运维", path: "/server-operations", icon: GameController, public: false },
   { label: "世界设置", path: "/world-settings", icon: Settings, public: false },
 ].filter((item) => item.public || isAdmin.value));

@@ -36,6 +36,7 @@
 - 管理员配种农场页面、父母帕鲁与专属蛋糕查看、游戏内广播、浏览器提醒和持久化通知中心
 - 标准五段 Cron 自动重启、SteamCMD 安全更新、PST 日志和操作审计
 - 玩家等级、经验、图鉴、探索、首领与科技进度的只读存档解析
+- Windows 本地 Production Bridge、工作台实时材料预览和生产订单
 
 业务数据保存在 `pst.db`，PST 配置和管理员凭据单独保存在 `config.db`。清理或重置配置不会影响玩家、公会、RCON 和备份记录。
 
@@ -79,6 +80,36 @@ Windows 是本功能的首要支持平台。Linux 和 macOS 仍可使用 PST 原
 - **RCON、日志与审计**：保留 RCON 命令和定时任务，并按需查看脱敏后的 PST 日志与管理员操作记录。
 
 SteamCMD 更新失败时，PST 会暂停守护并保持明确的“更新失败”状态，避免对可能不完整的服务器文件进行无限启动。管理员应先检查日志、修复 SteamCMD 或网络问题，再重试更新或手动启动。
+
+### Production Bridge 与生产订单
+
+Windows Release 会在 PST 目录下携带固定安装包：
+
+```text
+<PST 目录>\extras\PSTProductionBridge
+```
+
+管理员登录后打开“生产订单”，PST 会根据已配置的 `PalServer.exe` 推导 PalServer 根目录并检测：
+
+- Bridge 是否安装、版本是否一致、文件是否被修改；
+- UE4SS 是否存在、是否有重复安装冲突；
+- PalServer 是否由 PST 管理、当前进程是否适合自动维护；
+- Bridge 心跳、协议版本、Palworld Build 和生产能力是否兼容。
+
+PST 只管理自带的 `PST Production Bridge`，不会自动安装、升级或覆盖 UE4SS。请先按照所使用 UE4SS 发行版的说明完成服务端安装，并确认它与当前 Palworld Build 兼容。检测不到依赖时，页面会显示安装包源目录、Bridge 目标目录、`PalModSettings.ini`、UE4SS 预期目录和人工操作步骤。
+
+首次安装、升级、修复或禁用 Bridge 需要重启 PalServer。运行中的服务器会严格执行“保存世界 → 创建备份 → 平滑关服 → 等待进程完全退出 → 维护 Bridge → 启动并检查心跳”；已停止的服务器完成维护后仍保持停止。外部启动且无法由 PST 等待退出的 PalServer 不允许一键安装。
+
+Bridge 正常后，可以按“据点 → 具体工作台 → 配方 → 数量”创建订单：
+
+- **指定数量**：提交时材料不足会整单拒绝。
+- **按实时材料最大生产**：Bridge 在游戏线程中重新计算最大数量，并返回实际接受数量。
+- 网页预览不会预留材料；最终下单仍会校验工作台归属、配方、解锁、材料与队列状态。
+- 只有游戏尚未接受的订单可以请求取消；PST 不会强制清除已经开始生产的游戏队列。
+
+Bridge 与 PST 仅通过 PalServer 本地目录中的文件 IPC 通信，不开放新端口，也不会读写 `Level.sav`。普通玩家不需要安装客户端 Mod。当前版本属于首个运行时适配版本，Palworld 更新后如果能力校验失败，Bridge 会停止接收订单，PST 的地图、备份、守护、RCON 等其他功能不受影响。
+
+详细目录、状态和排错方法见 [Production Bridge 使用说明](./docs/production-bridge.md)。
 
 ### 玩家成长进度
 

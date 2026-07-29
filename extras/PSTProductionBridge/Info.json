@@ -1,0 +1,7 @@
+{
+  "Name": "PSTProductionBridge",
+  "Version": "0.1.0",
+  "Author": "PST Enhanced contributors",
+  "Description": "PST 本机生产订单桥接器，仅用于 Windows Palworld Dedicated Server。",
+  "IsServer": true
+}

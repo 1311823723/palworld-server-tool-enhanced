@@ -18,6 +18,8 @@ type OSProcessLauncher struct{}
 
 type osManagedProcess struct {
 	cmd      *exec.Cmd
+	stdout   *serverOutputFilter
+	stderr   *serverOutputFilter
 	exitCode int
 }
 
@@ -32,17 +34,21 @@ func (OSProcessLauncher) Start(_ context.Context, processConfig ProcessConfig) (
 	}
 	cmd := exec.Command(processConfig.ExecutablePath, processConfig.Arguments...)
 	cmd.Dir = processConfig.WorkingDirectory
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	stdout := &serverOutputFilter{dst: os.Stdout}
+	stderr := &serverOutputFilter{dst: os.Stderr}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &osManagedProcess{cmd: cmd, exitCode: -1}, nil
+	return &osManagedProcess{cmd: cmd, stdout: stdout, stderr: stderr, exitCode: -1}, nil
 }
 
 func (process *osManagedProcess) PID() int { return process.cmd.Process.Pid }
 func (process *osManagedProcess) Wait() error {
 	err := process.cmd.Wait()
+	_ = process.stdout.Flush()
+	_ = process.stderr.Flush()
 	if process.cmd.ProcessState != nil {
 		process.exitCode = process.cmd.ProcessState.ExitCode()
 	}
