@@ -568,6 +568,60 @@ func TestSettingsTransactionHealthFailureStopsNewProcessThenRollsBack(t *testing
 	}
 }
 
+func TestSettingsTransactionForcesSupervisedProcessExitAfterGracePeriod(t *testing.T) {
+	previousGrace := failedProcessGracePeriod
+	previousExitTimeout := failedProcessExitTimeout
+	failedProcessGracePeriod = 10 * time.Millisecond
+	failedProcessExitTimeout = time.Second
+	t.Cleanup(func() {
+		failedProcessGracePeriod = previousGrace
+		failedProcessExitTimeout = previousExitTimeout
+	})
+
+	first := newFakeProcess(580)
+	invalid := newFakeProcess(581)
+	restored := newFakeProcess(582)
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		switch attempt {
+		case 1:
+			return first, nil
+		case 2:
+			return invalid, nil
+		default:
+			return restored, nil
+		}
+	}}
+	controller := &fakeController{}
+	s := New(testConfig(true), launcher, &fakeDetector{}, controller)
+	defer s.Close()
+	_, _ = s.Start()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(
+			RestartOptions{RestartDelay: time.Millisecond},
+			TransactionHooks{
+				AfterExit:   func() error { return nil },
+				Rollback:    func() error { return nil },
+				HealthCheck: func(context.Context) error { return errors.New("unhealthy") },
+			},
+		)
+		result <- err
+	}()
+	waitFor(t, func() bool { return len(controller.Events()) == 2 })
+	first.Exit(0, nil)
+
+	if err := <-result; err == nil || !strings.Contains(err.Error(), "previous settings were restored") {
+		t.Fatalf("transaction error = %v", err)
+	}
+	if invalid.exitCode != -1 {
+		t.Fatalf("failed process exit code = %d, want forced termination", invalid.exitCode)
+	}
+	if launcher.Count() != 3 || !s.Status().Running || s.Status().PID != restored.PID() {
+		t.Fatalf("launches=%d status=%#v", launcher.Count(), s.Status())
+	}
+}
+
 func TestNextDailyRestartUsesLocalTime(t *testing.T) {
 	location := time.FixedZone("UTC+8", 8*60*60)
 	before := time.Date(2026, time.July, 22, 3, 59, 0, 0, location)

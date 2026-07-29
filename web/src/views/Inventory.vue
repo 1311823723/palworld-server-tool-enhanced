@@ -72,8 +72,7 @@ onMounted(loadSummary);
 </script>
 
 <template>
-  <operations-shell title="全服库存" subtitle="汇总玩家背包与据点容器中的物品位置。所有数据均为只读，PST 不会移动或删除物品。" :metadata="metadata" :loading="loading" @refresh="loadSummary">
-    <n-alert type="info" :bordered="false" class="mb-4">数据来自最近一次存档解析，默认每 120 秒检查一次；实际更新时间还取决于 Palworld 写入存档的时间。</n-alert>
+  <operations-shell title="全服库存" subtitle="按物品查看数量，以及它们所在的背包和据点容器。" :metadata="metadata" :loading="loading" @refresh="loadSummary">
     <n-alert v-if="metadata.is_stale" type="warning" class="mb-4">存档快照已过期：{{ metadata.save_file_time || metadata.snapshot_time }}</n-alert>
     <n-card size="small">
       <template #header>库存总览 <n-tag size="small" round>{{ total }} 种物品</n-tag></template>

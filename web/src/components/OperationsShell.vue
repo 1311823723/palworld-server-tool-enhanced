@@ -23,19 +23,35 @@ const route = useRoute();
 const router = useRouter();
 const isAdmin = ref(false);
 const mobileMenuOpen = ref(false);
+const connectionIssue = ref(null);
 
 const updateAuth = () => {
   isAdmin.value = Boolean(localStorage.getItem("palworld_token"));
+};
+const updateConnection = (event) => {
+  connectionIssue.value = event.detail?.state === "online" ? null : event.detail;
+};
+const updateBrowserConnection = () => {
+  connectionIssue.value = navigator.onLine
+    ? null
+    : { state: "offline", message: "设备当前没有网络连接" };
 };
 
 onMounted(() => {
   updateAuth();
   window.addEventListener("storage", updateAuth);
   window.addEventListener("pst-auth-changed", updateAuth);
+  window.addEventListener("pst-connection-state", updateConnection);
+  window.addEventListener("online", updateBrowserConnection);
+  window.addEventListener("offline", updateBrowserConnection);
+  updateBrowserConnection();
 });
 onBeforeUnmount(() => {
   window.removeEventListener("storage", updateAuth);
   window.removeEventListener("pst-auth-changed", updateAuth);
+  window.removeEventListener("pst-connection-state", updateConnection);
+  window.removeEventListener("online", updateBrowserConnection);
+  window.removeEventListener("offline", updateBrowserConnection);
 });
 
 const navigation = computed(() => [
@@ -86,11 +102,6 @@ const logout = () => {
           <span>{{ item.label }}</span>
         </router-link>
       </nav>
-      <div class="sidebar-note">
-        <span>数据来源</span>
-        <strong>Palworld 存档</strong>
-        <small>只读解析，不会改写世界存档</small>
-      </div>
     </aside>
 
     <div class="operations-main">
@@ -102,7 +113,7 @@ const logout = () => {
           <n-button quaternary circle size="small" aria-label="刷新当前页面" @click="emit('refresh')">↻</n-button>
         </div>
         <div class="title-block">
-          <span class="breadcrumb">PST <b>›</b> {{ title }}</span>
+          <span class="breadcrumb">管理中心 <b>›</b> {{ title }}</span>
           <h1>{{ title }}</h1>
           <p>{{ subtitle }}</p>
         </div>
@@ -122,6 +133,15 @@ const logout = () => {
           </nav>
         </div>
       </transition>
+      <n-alert
+        v-if="connectionIssue"
+        type="error"
+        class="connection-alert"
+        :title="connectionIssue.state === 'timeout' ? 'PST 响应超时' : 'PST 连接中断'"
+      >
+        {{ connectionIssue.message }}。确认 PST 正在运行后重试。
+        <template #action><n-button size="small" secondary @click="emit('refresh')">重试</n-button></template>
+      </n-alert>
       <snapshot-status
         v-if="metadata"
         :metadata="metadata"
@@ -188,6 +208,7 @@ h1 { margin: 8px 0 6px; font-size: clamp(28px, 3vw, 42px); line-height: 1.04; le
 p { max-width: 65ch; margin: 0; color: var(--ops-muted); font-size: 14px; line-height: 1.65; text-wrap: pretty; }
 .header-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .status-bar { max-width: calc(1420px - clamp(40px, 8vw, 104px)); margin: 0 auto; }
+.connection-alert { max-width: calc(1420px - clamp(40px, 8vw, 104px)); margin: 0 auto 12px; }
 .operations-content { max-width: 1420px; margin: 0 auto; padding: 18px clamp(20px, 4vw, 52px) 64px; }
 .mobile-brand-row, .mobile-bottom-nav { display: none; }
 :global(.operations-shell .n-card) { border-color: var(--ops-line); border-radius: 13px; box-shadow: 0 12px 28px rgba(37, 67, 56, .045); }
@@ -213,6 +234,7 @@ p { max-width: 65ch; margin: 0; color: var(--ops-muted); font-size: 14px; line-h
   p { font-size: 13px; line-height: 1.5; }
   .header-actions { justify-content: flex-end; margin-top: 12px; }
   .status-bar { margin: 0 14px; }
+  .connection-alert { margin: 0 14px 10px; }
   .operations-content { padding: 14px 12px 82px; }
   .mobile-bottom-nav { position: fixed; inset: auto 0 0; z-index: 30; display: flex; align-items: stretch; gap: 2px; min-height: 68px; padding: 6px max(4px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-bottom)); border-top: 1px solid var(--ops-line); background: rgba(255,255,255,.96); backdrop-filter: blur(18px); overflow-x: auto; }
   .mobile-bottom-nav a, .mobile-bottom-nav button { display: flex; flex: 1 0 54px; flex-direction: column; justify-content: center; align-items: center; gap: 3px; min-height: 52px; padding: 3px 4px; border: 0; border-radius: 8px; color: var(--ops-muted); background: transparent; font: inherit; font-size: 10px; white-space: nowrap; }

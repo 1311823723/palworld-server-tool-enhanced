@@ -2,20 +2,24 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import dayjs from "dayjs";
 import { useDialog, useMessage } from "naive-ui";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import ApiService from "@/service/api";
 import OperationsShell from "@/components/OperationsShell.vue";
 import ServerProcessCard from "@/components/ServerProcessCard.vue";
 import ConfigManager from "@/components/ConfigManager.vue";
 import RconManager from "@/components/RconManager.vue";
+import { apiErrorText, translateBackendMessage } from "@/utils/apiError";
 
 const api = new ApiService();
 const route = useRoute();
+const router = useRouter();
 const message = useMessage();
 const dialog = useDialog();
 const allowedTabs = ["process", "schedule", "update", "backup", "rcon", "logs", "audit"];
 const activeTab = ref(allowedTabs.includes(String(route.query.tab)) ? String(route.query.tab) : "process");
 const loading = ref(false);
+const loadedTabs = ref(new Set(["process"]));
+const tabError = ref("");
 const action = ref("");
 const showConfig = ref(false);
 const showRcon = ref(false);
@@ -70,32 +74,40 @@ const actionLabel = (value) => {
 };
 
 async function loadConfig() {
-  const { data, statusCode } = await api.getConfig();
+  const { data, statusCode, error } = await api.getConfig();
   if (statusCode.value === 200) configData.value = data.value;
+  else throw new Error(apiErrorText(data.value, "自动重启配置读取失败", statusCode.value, error.value));
 }
 async function loadBackups() {
-  const { data, statusCode } = await api.getBackupList({});
+  const { data, statusCode, error } = await api.getBackupList({});
   if (statusCode.value === 200) backups.value = (Array.isArray(data.value) ? data.value : []).reverse();
+  else throw new Error(apiErrorText(data.value, "备份记录读取失败", statusCode.value, error.value));
 }
 async function loadRconSummary() {
   const [commandResponse, taskResponse] = await Promise.all([api.getRconCommands(), api.getRconTasks()]);
   if (commandResponse.statusCode.value === 200) commands.value = commandResponse.data.value || [];
   if (taskResponse.statusCode.value === 200) tasks.value = taskResponse.data.value || [];
+  if (commandResponse.statusCode.value !== 200 || taskResponse.statusCode.value !== 200) {
+    const failed = commandResponse.statusCode.value !== 200 ? commandResponse : taskResponse;
+    throw new Error(apiErrorText(failed.data.value, "RCON 信息读取失败", failed.statusCode.value, failed.error?.value));
+  }
 }
 async function loadUpdate() {
-  const { data, statusCode } = await api.getServerUpdate();
+  const { data, statusCode, error } = await api.getServerUpdate();
   if (statusCode.value === 200) updateStatus.value = data.value || updateStatus.value;
+  else throw new Error(apiErrorText(data.value, "服务器更新状态读取失败", statusCode.value, error.value));
 }
 async function loadAudits() {
-  const { data, statusCode } = await api.getOperationAudits({ limit: 200 });
+  const { data, statusCode, error } = await api.getOperationAudits({ limit: 200 });
   if (statusCode.value === 200) audits.value = data.value?.items || [];
+  else throw new Error(apiErrorText(data.value, "操作记录读取失败", statusCode.value, error.value));
 }
 async function loadLogs(reset = false) {
   if (reset) {
     logCursor.value = 0;
     logs.value = [];
   }
-  const { data, statusCode } = await api.getRuntimeLogs({
+  const { data, statusCode, error } = await api.getRuntimeLogs({
     limit: 300,
     after_id: logCursor.value,
     level: logLevel.value,
@@ -104,25 +116,44 @@ async function loadLogs(reset = false) {
     const incoming = data.value?.items || [];
     logs.value = [...logs.value, ...incoming].slice(-800);
     logCursor.value = data.value?.next_cursor || logCursor.value;
+  } else {
+    throw new Error(apiErrorText(data.value, "运行日志读取失败", statusCode.value, error.value));
   }
 }
 function startLogPolling() {
   clearInterval(logTimer);
   if (activeTab.value !== "logs") return;
-  loadLogs();
-  logTimer = window.setInterval(loadLogs, 2000);
+  logTimer = window.setInterval(() => loadLogs().catch(() => {}), 2000);
+}
+async function loadTab(tab = activeTab.value, force = false) {
+  if (!force && loadedTabs.value.has(tab)) return;
+  loading.value = true;
+  tabError.value = "";
+  try {
+    if (tab === "schedule") {
+      await loadConfig();
+      await previewSchedule(false);
+    } else if (tab === "update") await loadUpdate();
+    else if (tab === "backup") await loadBackups();
+    else if (tab === "rcon") await loadRconSummary();
+    else if (tab === "logs") await loadLogs(true);
+    else if (tab === "audit") await loadAudits();
+    loadedTabs.value = new Set([...loadedTabs.value, tab]);
+  } catch (error) {
+    tabError.value = error?.message || "当前内容加载失败，请重试";
+  } finally {
+    loading.value = false;
+  }
 }
 async function load() {
-  loading.value = true;
-  await Promise.all([loadConfig(), loadBackups(), loadRconSummary(), loadUpdate(), loadAudits()]);
-  loading.value = false;
+  await loadTab(activeTab.value, true);
 }
 async function createBackup() {
   if (action.value) return;
   action.value = "backup";
-  const { data, statusCode } = await api.createBackup();
+  const { data, statusCode, error } = await api.createBackup();
   action.value = "";
-  if (statusCode.value !== 200) message.error(data.value?.error || "备份创建失败");
+  if (statusCode.value !== 200) message.error(apiErrorText(data.value, "备份创建失败", statusCode.value, error.value));
   else {
     message.success("存档备份已创建");
     await loadBackups();
@@ -147,8 +178,8 @@ function removeBackup(item) {
     positiveText: "删除",
     negativeText: "取消",
     onPositiveClick: async () => {
-      const { data, statusCode } = await api.removeBackup(item.backup_id);
-      if (statusCode.value !== 200) message.error(data.value?.error || "删除失败");
+      const { data, statusCode, error } = await api.removeBackup(item.backup_id);
+      if (statusCode.value !== 200) message.error(apiErrorText(data.value, "删除失败", statusCode.value, error.value));
       else await loadBackups();
     },
   });
@@ -157,7 +188,7 @@ async function previewSchedule(notifyOnError = true) {
   const value = schedule.value;
   if (!value.scheduled_restart_frequency) return;
   previewLoading.value = true;
-  const { data, statusCode } = await api.previewRestartSchedule({
+  const { data, statusCode, error } = await api.previewRestartSchedule({
     frequency: value.scheduled_restart_frequency,
     time: value.scheduled_restart_time,
     interval_days: value.scheduled_restart_interval_days,
@@ -171,7 +202,7 @@ async function previewSchedule(notifyOnError = true) {
     previewTimes.value = [];
     previewDescription.value = "";
     previewTimezone.value = "";
-    previewError.value = data.value?.error || "计划表达式无效";
+    previewError.value = apiErrorText(data.value, "计划表达式无效", statusCode.value, error.value);
     if (notifyOnError) message.error(previewError.value);
   } else {
     previewTimes.value = data.value?.items || [];
@@ -183,9 +214,9 @@ async function previewSchedule(notifyOnError = true) {
 async function saveSchedule() {
   if (!configData.value || action.value) return;
   action.value = "schedule";
-  const { data, statusCode } = await api.updateConfig({ settings: configData.value, new_password: "" });
+  const { data, statusCode, error } = await api.updateConfig({ settings: configData.value, new_password: "" });
   action.value = "";
-  if (statusCode.value !== 200) message.error(data.value?.error || "自动重启计划保存失败");
+  if (statusCode.value !== 200) message.error(apiErrorText(data.value, "自动重启计划保存失败", statusCode.value, error.value));
   else {
     message.success("自动重启计划已保存并立即生效");
     await previewSchedule();
@@ -193,19 +224,19 @@ async function saveSchedule() {
 }
 async function checkUpdate() {
   action.value = "check-update";
-  const { data, statusCode } = await api.checkServerUpdate();
+  const { data, statusCode, error } = await api.checkServerUpdate();
   action.value = "";
   updateStatus.value = data.value || updateStatus.value;
-  if (statusCode.value !== 200) message.error(data.value?.error || "检查更新失败");
+  if (statusCode.value !== 200) message.error(apiErrorText(data.value, "检查更新失败", statusCode.value, error.value));
   else if (updateStatus.value.available) message.warning(`发现新版本：Build ${updateStatus.value.latest_build}`);
   else message.success("当前服务器已是最新版本");
 }
 async function applyUpdate() {
   if (updateForm.confirmation !== "UPDATE" || action.value) return;
   action.value = "apply-update";
-  const { data, statusCode } = await api.applyServerUpdate(updateForm);
+  const { data, statusCode, error } = await api.applyServerUpdate(updateForm);
   action.value = "";
-  if (statusCode.value !== 200) message.error(data.value?.error || "服务器更新失败");
+  if (statusCode.value !== 200) message.error(apiErrorText(data.value, "服务器更新失败", statusCode.value, error.value));
   else {
     updateForm.confirmation = "";
     message.success("服务器更新流程已完成");
@@ -214,11 +245,13 @@ async function applyUpdate() {
 }
 
 watch(activeTab, (value) => {
+  router.replace({ query: { ...route.query, tab: value } });
+  loadTab(value);
   startLogPolling();
-  if (value === "audit") loadAudits();
-  if (value === "schedule") previewSchedule(false);
 });
-watch(logLevel, () => loadLogs(true));
+watch(logLevel, () => {
+  if (activeTab.value === "logs") loadLogs(true).catch((error) => { tabError.value = error.message; });
+});
 watch(
   () => [
     schedule.value.scheduled_restart_frequency,
@@ -236,10 +269,7 @@ watch(
     }
   },
 );
-onMounted(async () => {
-  await load();
-  await previewSchedule(false);
-});
+onMounted(() => loadTab(activeTab.value));
 onBeforeUnmount(() => {
   clearInterval(logTimer);
   clearTimeout(previewTimer);
@@ -258,10 +288,18 @@ onBeforeUnmount(() => {
       <n-tab-pane name="audit" tab="操作审计" />
     </n-tabs>
 
-    <server-process-card v-if="activeTab === 'process'" :is-admin="true" />
+    <n-alert v-if="tabError" type="error" class="tab-error">
+      <div class="retry-row"><span>{{ tabError }}</span><n-button size="small" secondary @click="load">重试</n-button></div>
+    </n-alert>
+    <div v-if="loading && !loadedTabs.has(activeTab)" class="tab-skeleton">
+      <n-skeleton text :repeat="2" />
+      <n-skeleton height="220px" />
+    </div>
+
+    <server-process-card v-else-if="activeTab === 'process'" :is-admin="true" />
 
     <section v-else-if="activeTab === 'schedule' && configData" class="tool-panel schedule-panel">
-      <header><div><span>无人值守维护</span><h2>自动重启计划</h2><p>预设模式适合多数用户，高级用户可以填写标准五段 Cron 表达式。</p></div><n-switch v-model:value="schedule.scheduled_restart_enabled"><template #checked>已开启</template><template #unchecked>已关闭</template></n-switch></header>
+      <header><div><h2>自动重启计划</h2><p>选择执行频率和时间，保存后立即生效。</p></div><n-switch v-model:value="schedule.scheduled_restart_enabled"><template #checked>已开启</template><template #unchecked>已关闭</template></n-switch></header>
       <div class="form-grid">
         <n-form-item label="执行频率"><n-select v-model:value="schedule.scheduled_restart_frequency" :options="frequencyOptions" /></n-form-item>
         <n-form-item v-if="schedule.scheduled_restart_frequency !== 'cron'" label="执行时间"><n-time-picker v-model:formatted-value="schedule.scheduled_restart_time" value-format="HH:mm" format="HH:mm" /></n-form-item>
@@ -278,22 +316,24 @@ onBeforeUnmount(() => {
         <small v-if="previewError" class="preview-error">{{ previewError }}</small>
         <small v-else-if="!previewTimes.length">正在计算未来执行时间</small>
       </div>
+      <n-collapse class="learn-more"><n-collapse-item title="了解 Cron 和执行规则" name="schedule-help"><p>高级模式使用标准五段 Cron：分钟、小时、日期、月份、星期。计划触发后仍会先广播和保存，等待旧进程完全退出后再启动。</p></n-collapse-item></n-collapse>
       <footer><n-button secondary @click="showConfig = true">完整进程配置</n-button><n-button :loading="previewLoading" @click="previewSchedule(true)">校验计划</n-button><n-button type="primary" :loading="action === 'schedule'" @click="saveSchedule">保存并生效</n-button></footer>
     </section>
 
     <section v-else-if="activeTab === 'update'" class="tool-panel update-panel">
-      <header><div><span>STEAMCMD</span><h2>Palworld Dedicated Server 更新</h2><p>只运行配置中的 steamcmd.exe，App ID 固定为 2394010，不接受任何命令字符串。</p></div><n-tag :type="updateStatus.available ? 'warning' : updateStatus.error ? 'error' : 'success'">{{ updateStatus.available ? "发现更新" : updateStatus.error ? "检查失败" : "暂无更新" }}</n-tag></header>
+      <header><div><h2>服务器更新</h2><p>检查并安装 Palworld Dedicated Server 更新。</p></div><n-tag :type="updateStatus.available ? 'warning' : updateStatus.error ? 'error' : 'success'">{{ updateStatus.available ? "发现更新" : updateStatus.error ? "检查失败" : "暂无更新" }}</n-tag></header>
       <dl class="update-facts"><div><dt>已安装 Build</dt><dd>{{ updateStatus.installed_build || "—" }}</dd></div><div><dt>最新 Build</dt><dd>{{ updateStatus.latest_build || "—" }}</dd></div><div><dt>最近检查</dt><dd>{{ updateStatus.last_checked_at ? dayjs(updateStatus.last_checked_at).format("MM-DD HH:mm") : "—" }}</dd></div></dl>
-      <n-alert v-if="updateStatus.error" type="error" :bordered="false">{{ updateStatus.error }}</n-alert>
+      <n-alert v-if="updateStatus.error" type="error" :bordered="false">{{ translateBackendMessage(updateStatus.error) }}</n-alert>
       <div class="update-confirm">
         <n-input v-model:value="updateForm.confirmation" placeholder="输入 UPDATE 确认保存、备份、关服、更新并重启" />
         <n-button secondary :loading="action === 'check-update'" @click="checkUpdate">检查更新</n-button>
         <n-button type="warning" :disabled="updateForm.confirmation !== 'UPDATE'" :loading="action === 'apply-update'" @click="applyUpdate">执行更新</n-button>
       </div>
+      <n-collapse class="learn-more"><n-collapse-item title="了解更新过程" name="update-help"><p>PST 只运行配置中的 steamcmd.exe，App ID 固定为 2394010。更新前会保存世界并创建备份，不接受自定义命令。</p></n-collapse-item></n-collapse>
     </section>
 
     <section v-else-if="activeTab === 'backup'" class="tool-panel">
-      <header><div><span>SAVE ARCHIVE</span><h2>存档备份历史</h2><p>手动备份会在服务器运行时先保存世界，再压缩当前存档。</p></div><n-button type="primary" :loading="action === 'backup'" @click="createBackup">立即备份</n-button></header>
+      <header><div><h2>存档备份</h2><p>查看、下载或删除已经生成的备份。</p></div><n-button type="primary" :loading="action === 'backup'" @click="createBackup">立即备份</n-button></header>
       <div v-if="backups.length" class="backup-list">
         <article v-for="item in backups" :key="item.backup_id"><div><strong>{{ dayjs(item.save_time).format("YYYY-MM-DD HH:mm:ss") }} <n-tag size="tiny" :type="item.status === 'failed' ? 'error' : 'success'">{{ item.status === "failed" ? "失败" : "成功" }}</n-tag></strong><small>{{ item.path || item.error || "未生成备份文件" }} · {{ item.source === "manual" ? "手动" : item.source === "update" ? "更新前" : "自动" }} · {{ formatBytes(item.size) }}</small></div><n-space><n-button size="small" :disabled="item.status === 'failed' || !item.path" :loading="action === item.backup_id" @click="downloadBackup(item)">下载</n-button><n-button size="small" type="error" text @click="removeBackup(item)">删除</n-button></n-space></article>
       </div>
@@ -301,19 +341,21 @@ onBeforeUnmount(() => {
     </section>
 
     <section v-else-if="activeTab === 'rcon'" class="tool-panel">
-      <header><div><span>RCON CONSOLE</span><h2>命令与定时任务</h2><p>已有 {{ commands.length }} 个命令模板、{{ tasks.length }} 个定时任务。危险命令仍由管理员 JWT 保护。</p></div><n-button type="primary" @click="showRcon = true">打开 RCON 控制台</n-button></header>
+      <header><div><h2>RCON 命令与定时任务</h2><p>已有 {{ commands.length }} 个命令模板、{{ tasks.length }} 个定时任务。</p></div><n-button type="primary" @click="showRcon = true">打开 RCON 控制台</n-button></header>
       <div class="rcon-summary"><article><strong>{{ commands.length }}</strong><span>命令模板</span></article><article><strong>{{ tasks.filter((item) => item.enabled).length }}</strong><span>启用的定时任务</span></article><article><strong>{{ tasks.filter((item) => item.last_status === 'failed').length }}</strong><span>最近失败</span></article></div>
       <div class="task-list"><article v-for="item in tasks.slice(0, 8)" :key="item.uuid"><div><strong>{{ item.name }}</strong><small>{{ item.cron }} · 执行 {{ item.run_count || 0 }} 次</small></div><n-tag size="small" :type="item.enabled ? item.last_status === 'failed' ? 'error' : 'success' : 'default'">{{ item.enabled ? item.last_status === "failed" ? "失败" : "已启用" : "已停用" }}</n-tag></article></div>
     </section>
 
     <section v-else-if="activeTab === 'logs'" class="tool-panel log-panel">
-      <header><div><span>RUNTIME LOG</span><h2>PST 运行日志</h2><p>页面打开时每 2 秒增量读取；密码、JWT 和 Authorization 会自动隐藏。</p></div><n-select v-model:value="logLevel" clearable :options="[{label:'错误',value:'error'},{label:'警告',value:'warn'},{label:'信息',value:'info'},{label:'调试',value:'debug'}]" placeholder="全部级别" class="level-select" /></header>
+      <header><div><h2>PST 运行日志</h2><p>仅在当前标签打开时读取新日志。</p></div><n-select v-model:value="logLevel" clearable :options="[{label:'错误',value:'error'},{label:'警告',value:'warn'},{label:'信息',value:'info'},{label:'调试',value:'debug'}]" placeholder="全部级别" class="level-select" /></header>
       <div class="log-console"><article v-for="item in logs" :key="item.id" :class="item.level"><time>{{ dayjs(item.timestamp).format("HH:mm:ss") }}</time><b>{{ item.level.toUpperCase() }}</b><span>{{ item.message }}</span></article><n-empty v-if="!logs.length" description="暂无运行日志" /></div>
+      <n-collapse class="learn-more"><n-collapse-item title="了解日志隐私" name="log-help"><p>密码、JWT 和 Authorization 等敏感内容会在返回页面前进行隐藏。</p></n-collapse-item></n-collapse>
     </section>
 
-    <section v-else class="tool-panel">
-      <header><div><span>OPERATIONS AUDIT</span><h2>管理员操作记录</h2><p>只记录接口动作、结果和时间，不保存请求正文或任何密码。</p></div><n-button secondary @click="loadAudits">刷新</n-button></header>
+    <section v-else-if="activeTab === 'audit'" class="tool-panel">
+      <header><div><h2>管理员操作记录</h2><p>查看管理操作的时间和结果。</p></div><n-button secondary @click="load">刷新</n-button></header>
       <div class="audit-list"><article v-for="item in audits" :key="item.id"><i :class="item.status" /><div><strong>{{ actionLabel(item.action) }}</strong><small>{{ item.detail }} · {{ dayjs(item.created_at).format("YYYY-MM-DD HH:mm:ss") }}</small></div><n-tag size="small" :type="item.status === 'success' ? 'success' : 'error'">{{ item.status === "success" ? "成功" : "失败" }}</n-tag></article></div>
+      <n-collapse class="learn-more"><n-collapse-item title="了解记录内容" name="audit-help"><p>这里只保存操作名称、执行结果和时间，不保存密码或完整请求内容。</p></n-collapse-item></n-collapse>
     </section>
   </operations-shell>
 
@@ -323,11 +365,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .ops-tabs { margin-bottom: 13px; }
+.tab-error { margin-bottom: 12px; }
+.retry-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tab-skeleton { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--ops-line); background: var(--ops-panel); }
 .tool-panel { padding: 18px; border: 1px solid var(--ops-line); background: var(--ops-panel); }
 .tool-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 17px; }
-.tool-panel header span { color: var(--ops-accent); font: 700 10px/1.2 ui-monospace, monospace; letter-spacing: .09em; }
 h2 { margin: 5px 0; font-size: 23px; letter-spacing: -.025em; }
 p { color: var(--ops-muted); font-size: 13px; line-height: 1.55; }
+.learn-more { margin-top: 14px; border-top: 1px solid var(--ops-line); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 .preview { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 13px; background: var(--ops-accent-soft); }
 .preview span, .preview small { color: var(--ops-muted); font-size: 11px; }

@@ -23,6 +23,11 @@ var (
 	ErrInvalidConfig        = errors.New("invalid server process configuration")
 )
 
+var (
+	failedProcessGracePeriod = 30 * time.Second
+	failedProcessExitTimeout = 30 * time.Second
+)
+
 type State string
 
 const (
@@ -134,6 +139,7 @@ type TransactionHooks struct {
 	AfterExit      func() error
 	Rollback       func() error
 	HealthCheck    func(context.Context) error
+	HealthTimeout  time.Duration
 }
 
 type Status struct {
@@ -512,7 +518,11 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 	}
 
 	if hooks.HealthCheck != nil {
-		healthContext, cancel := context.WithTimeout(s.ctx, 90*time.Second)
+		healthTimeout := hooks.HealthTimeout
+		if healthTimeout <= 0 {
+			healthTimeout = 90 * time.Second
+		}
+		healthContext, cancel := context.WithTimeout(s.ctx, healthTimeout)
 		err := hooks.HealthCheck(healthContext)
 		cancel()
 		if err != nil {
@@ -527,25 +537,46 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 			s.mu.Unlock()
 
 			// The new process must be fully gone before restoring the previous file.
-			// Prefer the official graceful shutdown path, but if REST itself is what
-			// the new configuration broke, terminate only the supervised process.
-			if shutdownErr := s.controller.Shutdown(0, "Settings validation failed; restoring previous settings"); shutdownErr != nil {
-				if process == nil {
-					return fail(fmt.Errorf("%v; rollback shutdown failed: %w", healthErr, shutdownErr))
-				}
-				if killErr := process.Kill(); killErr != nil {
-					return fail(fmt.Errorf("%v; rollback shutdown failed: %v; terminate failed: %w", healthErr, shutdownErr, killErr))
+			// Give the official shutdown a short grace period, then terminate only
+			// the supervised process so a successful-but-ineffective REST response
+			// cannot leave the maintenance transaction stuck for minutes.
+			shutdownErr := s.controller.Shutdown(0, "配置验证失败，正在恢复原设置")
+			exited := false
+			if shutdownErr == nil {
+				graceTimer := time.NewTimer(failedProcessGracePeriod)
+				select {
+				case <-s.ctx.Done():
+					graceTimer.Stop()
+					return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
+				case <-exitSignal:
+					graceTimer.Stop()
+					exited = true
+				case <-graceTimer.C:
 				}
 			}
-			rollbackTimer := time.NewTimer(2 * time.Minute)
-			select {
-			case <-s.ctx.Done():
-				rollbackTimer.Stop()
-				return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
-			case <-rollbackTimer.C:
-				return fail(fmt.Errorf("%v; timed out waiting for failed process to exit", healthErr))
-			case <-exitSignal:
-				rollbackTimer.Stop()
+			if !exited {
+				if process == nil {
+					if shutdownErr != nil {
+						return fail(fmt.Errorf("%v; rollback shutdown failed: %w", healthErr, shutdownErr))
+					}
+					return fail(fmt.Errorf("%v; failed process is no longer supervised", healthErr))
+				}
+				if killErr := process.Kill(); killErr != nil {
+					if shutdownErr != nil {
+						return fail(fmt.Errorf("%v; rollback shutdown failed: %v; terminate failed: %w", healthErr, shutdownErr, killErr))
+					}
+					return fail(fmt.Errorf("%v; terminate failed process: %w", healthErr, killErr))
+				}
+				killTimer := time.NewTimer(failedProcessExitTimeout)
+				select {
+				case <-s.ctx.Done():
+					killTimer.Stop()
+					return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
+				case <-killTimer.C:
+					return fail(fmt.Errorf("%v; timed out waiting for terminated process to exit", healthErr))
+				case <-exitSignal:
+					killTimer.Stop()
+				}
 			}
 			if hooks.Rollback == nil {
 				return fail(fmt.Errorf("%v; no rollback hook was provided", healthErr))

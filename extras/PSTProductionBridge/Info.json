@@ -1,7 +1,20 @@
 {
-  "Name": "PSTProductionBridge",
-  "Version": "0.1.0",
+  "ModName": "PST Production Bridge",
+  "PackageName": "PSTProductionBridge",
+  "Version": "0.1.1",
   "Author": "PST Enhanced contributors",
-  "Description": "PST 本机生产订单桥接器，仅用于 Windows Palworld Dedicated Server。",
-  "IsServer": true
+  "Dependencies": null,
+  "Tags": [
+    "Utilities",
+    "UE4SS"
+  ],
+  "InstallRule": [
+    {
+      "Type": "Lua",
+      "IsServer": true,
+      "Targets": [
+        "./Scripts"
+      ]
+    }
+  ]
 }

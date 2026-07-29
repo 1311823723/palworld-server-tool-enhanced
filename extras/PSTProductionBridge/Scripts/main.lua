@@ -1,9 +1,65 @@
 local json = require("json")
 
-local BRIDGE_VERSION = "0.1.0"
+local BRIDGE_VERSION = "0.1.1"
 local PROTOCOL_VERSION = 1
 local MOD_NAME = "PSTProductionBridge"
-local IPC_ROOT = "..\\..\\Saved\\PSTProductionBridge\\"
+
+local function with_trailing_separator(path)
+    if not path or path == "" then return nil end
+    local last = path:sub(-1)
+    if last == "\\" or last == "/" then return path end
+    return path .. "\\"
+end
+
+local function find_saved_directory(node, depth, visited)
+    if depth > 6 or type(node) ~= "table" or visited[node] then return nil end
+    visited[node] = true
+
+    local ok_name, name = pcall(function() return node.__name end)
+    local ok_path, absolute_path = pcall(function() return node.__absolute_path end)
+    if ok_name and ok_path and type(name) == "string" and type(absolute_path) == "string" then
+        local normalized = absolute_path:gsub("/", "\\")
+        if name:lower() == "saved" and normalized:lower():match("\\pal\\saved$") then
+            return normalized
+        end
+    end
+
+    local ok_pairs, result = pcall(function()
+        for key, child in pairs(node) do
+            if type(key) ~= "string" or key:sub(1, 2) ~= "__" then
+                local found = find_saved_directory(child, depth + 1, visited)
+                if found then return found end
+            end
+        end
+        return nil
+    end)
+    if ok_pairs then return result end
+    return nil
+end
+
+local function resolve_ipc_root()
+    -- PST injects this path into the supervised PalServer process. It is
+    -- independent of WorkshopRootDir and UE4SS's current working directory.
+    local configured = os.getenv("PST_BRIDGE_IPC_ROOT")
+    if configured and configured ~= "" then
+        return with_trailing_separator(configured)
+    end
+
+    -- Manual/external starts do not inherit the PST environment. UE4SS exposes
+    -- the game directory tree, so locate Pal\Saved without assuming a CWD.
+    local ok, directories = pcall(IterateGameDirectories)
+    if ok then
+        local saved = find_saved_directory(directories, 0, {})
+        if saved then
+            return with_trailing_separator(saved .. "\\" .. MOD_NAME)
+        end
+    end
+
+    -- PalServer normally starts with its installation root as the CWD.
+    return "Pal\\Saved\\" .. MOD_NAME .. "\\"
+end
+
+local IPC_ROOT = resolve_ipc_root()
 local REQUEST_ROOT = IPC_ROOT .. "requests\\"
 local RESULT_ROOT = IPC_ROOT .. "results\\"
 local STATE_PATH = IPC_ROOT .. "state.json"
@@ -459,4 +515,4 @@ LoopAsync(5000, function()
     return false
 end)
 
-log("Bridge loaded, protocol " .. tostring(PROTOCOL_VERSION))
+log("Bridge loaded, protocol " .. tostring(PROTOCOL_VERSION) .. ", IPC " .. IPC_ROOT)

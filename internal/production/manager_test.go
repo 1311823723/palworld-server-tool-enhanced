@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -334,6 +335,46 @@ func TestRecheckDetectsManualBridgeAndClearsPreviousFailure(t *testing.T) {
 	}
 	if status.ManualInstall == nil || status.ManualInstall.TargetDirectory != resolved.Target {
 		t.Fatalf("recheck target = %#v, want %q", status.ManualInstall, resolved.Target)
+	}
+}
+
+func TestHeartbeatDiagnosticExplainsDeploymentStage(t *testing.T) {
+	_, processConfig, paths := prepareInstallerTest(t, true)
+	if message := heartbeatDiagnostic(paths, processConfig, os.ErrNotExist); !strings.Contains(message, "未生成 ManagedMods") {
+		t.Fatalf("missing managed manifest diagnostic = %q", message)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(paths.Managed), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Managed, []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if message := heartbeatDiagnostic(paths, processConfig, os.ErrNotExist); !strings.Contains(message, "没有把 Lua 部署") {
+		t.Fatalf("missing runtime diagnostic = %q", message)
+	}
+
+	runtimeScript := filepath.Join(paths.Runtime, "Scripts", "main.lua")
+	if err := os.MkdirAll(filepath.Dir(runtimeScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(runtimeScript, []byte("print('test')"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if message := heartbeatDiagnostic(paths, processConfig, os.ErrNotExist); !strings.Contains(message, "UE4SS.log 尚未生成") {
+		t.Fatalf("missing UE4SS log diagnostic = %q", message)
+	}
+
+	if err := os.WriteFile(paths.UE4SSLog, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if message := heartbeatDiagnostic(paths, processConfig, os.ErrNotExist); !strings.Contains(message, "Bridge Lua 未产生心跳") {
+		t.Fatalf("missing heartbeat diagnostic = %q", message)
+	}
+
+	processConfig.Arguments = append(processConfig.Arguments, "-NoMods")
+	if message := heartbeatDiagnostic(paths, processConfig, os.ErrNotExist); !strings.Contains(message, "-NoMods") {
+		t.Fatalf("NoMods diagnostic = %q", message)
 	}
 }
 

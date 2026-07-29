@@ -2,6 +2,7 @@
 import { zhCN, dateZhCN, darkTheme } from "naive-ui";
 import pageStore from "@/stores/model/page.js";
 import { onBeforeUnmount, onMounted, ref } from "vue";
+import RouteSkeleton from "@/components/RouteSkeleton.vue";
 
 localStorage.setItem("locale", "zh");
 const isDarkMode = ref(window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -33,8 +34,19 @@ onBeforeUnmount(() => {
   <n-config-provider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides" :theme="isDarkMode ? darkTheme : null">
     <n-dialog-provider>
       <n-notification-provider>
-        <n-message-provider><router-view /></n-message-provider>
+        <n-message-provider>
+          <router-view v-slot="{ Component }">
+            <suspense :timeout="0">
+              <div class="route-view"><component :is="Component" /></div>
+              <template #fallback><route-skeleton /></template>
+            </suspense>
+          </router-view>
+        </n-message-provider>
       </n-notification-provider>
     </n-dialog-provider>
   </n-config-provider>
 </template>
+
+<style>
+.route-view { min-height: 100dvh; }
+</style>
