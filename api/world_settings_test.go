@@ -62,3 +62,25 @@ func TestWorldSettingsAPINeverReturnsPasswordValues(t *testing.T) {
 		t.Fatalf("world settings response did not expose redacted secret state: %s", response.Body.String())
 	}
 }
+
+func TestWorldSettingsMutationsRequireConfirmationWords(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	manager := worldsettings.NewManager(nil, nil, nil, nil)
+	router := gin.New()
+	router.POST("/apply", applyWorldSettings(manager))
+	router.POST("/backups/:backup_id/restore", restoreWorldSettingsBackup(manager))
+
+	applyResponse := performJSONRequest(router, http.MethodPost, "/apply", map[string]any{
+		"changes": map[string]any{"ServerName": "Changed"},
+	}, "")
+	if applyResponse.Code != http.StatusBadRequest || !strings.Contains(applyResponse.Body.String(), "应用") {
+		t.Fatalf("apply confirmation status=%d body=%s", applyResponse.Code, applyResponse.Body.String())
+	}
+
+	restoreResponse := performJSONRequest(router, http.MethodPost, "/backups/test/restore", map[string]any{
+		"confirmation": "wrong",
+	}, "")
+	if restoreResponse.Code != http.StatusBadRequest || !strings.Contains(restoreResponse.Body.String(), "恢复") {
+		t.Fatalf("restore confirmation status=%d body=%s", restoreResponse.Code, restoreResponse.Body.String())
+	}
+}

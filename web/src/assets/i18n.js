@@ -460,8 +460,8 @@ const messages = {
       shutdownSeconds: "Shutdown countdown (seconds)",
       restartDelay: "Delay after actual exit (seconds)",
       message: "Broadcast message",
-      confirmRestart: "Type RESTART to confirm",
-      confirmStop: "Type SHUTDOWN to confirm",
+      confirmRestart: "Confirm graceful restart",
+      confirmStop: "Confirm graceful stop",
       keepStopped: "Keep stopped after shutdown",
       states: {
         stopped: "Stopped",
@@ -491,7 +491,7 @@ const messages = {
       title: "Danger zone · Shut down server",
       warning: "This interrupts every online player",
       description:
-        "Set a countdown and broadcast message, then type SHUTDOWN to confirm.",
+        "Review the countdown and broadcast message, then confirm the graceful shutdown.",
       countdown: "Countdown (seconds)",
       broadcastMessage: "Shutdown broadcast",
       confirmLabel: "Confirmation",
@@ -1026,8 +1026,8 @@ const messages = {
       shutdownSeconds: "关服倒计时（秒）",
       restartDelay: "实际退出后的等待时间（秒）",
       message: "游戏内广播消息",
-      confirmRestart: "输入“重启”确认",
-      confirmStop: "输入“停服”确认",
+      confirmRestart: "确认平滑重启",
+      confirmStop: "确认平滑停服",
       keepStopped: "关闭后保持停止",
       states: {
         stopped: "已停止",
@@ -1054,7 +1054,7 @@ const messages = {
     danger: {
       title: "危险操作 · 关闭服务器",
       warning: "此操作会中断所有在线玩家",
-      description: "请配置倒计时和广播内容，并输入“停服”二次确认。",
+      description: "请检查倒计时和广播内容，确认后将执行平滑关服。",
       countdown: "倒计时（秒）",
       broadcastMessage: "关服广播内容",
       confirmLabel: "二次确认",
@@ -1589,8 +1589,8 @@ const messages = {
       shutdownSeconds: "停止カウントダウン（秒）",
       restartDelay: "実際の終了後の待機時間（秒）",
       message: "ゲーム内メッセージ",
-      confirmRestart: "RESTART と入力して確認",
-      confirmStop: "SHUTDOWN と入力して確認",
+      confirmRestart: "再起動を確認",
+      confirmStop: "停止を確認",
       keepStopped: "停止状態を維持",
       states: {
         stopped: "停止中",
@@ -1619,7 +1619,7 @@ const messages = {
       title: "危険な操作 · サーバー停止",
       warning: "すべてのオンラインプレイヤーが切断されます",
       description:
-        "カウントダウンとメッセージを設定し、SHUTDOWN と入力してください。",
+        "カウントダウンとメッセージを確認してから、安全な停止を実行してください。",
       countdown: "カウントダウン（秒）",
       broadcastMessage: "停止メッセージ",
       confirmLabel: "確認",

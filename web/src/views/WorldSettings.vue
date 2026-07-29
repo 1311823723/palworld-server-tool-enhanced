@@ -25,6 +25,9 @@ const modifiedOnly = ref(false);
 const validation = ref(null);
 const showDiff = ref(false);
 const confirmText = ref("");
+const restoreVisible = ref(false);
+const restoreTarget = ref("");
+const restoreConfirmText = ref("");
 const shutdownSeconds = ref(30);
 const restartDelaySeconds = ref(10);
 const restartMessage = ref("服务器设置已修改，将在 30 秒后重启。");
@@ -54,7 +57,7 @@ function requestBody() {
       if (secretInputs[definition.key]) secrets[definition.key] = secretInputs[definition.key];
     } else changes[definition.key] = values[definition.key];
   });
-  return { changes, secrets, clear_secrets: clearSecrets.value, shutdown_seconds: shutdownSeconds.value, restart_delay_seconds: restartDelaySeconds.value, message: restartMessage.value };
+  return { changes, secrets, clear_secrets: clearSecrets.value, confirmation: confirmText.value, shutdown_seconds: shutdownSeconds.value, restart_delay_seconds: restartDelaySeconds.value, message: restartMessage.value };
 }
 
 async function load() {
@@ -116,13 +119,29 @@ async function deleteBackup(id) {
   }});
 }
 
-async function restoreBackup(id) {
-  dialog.warning({ title: "恢复并重启服务器", content: `将恢复 ${id}，保存世界并等待 PalServer 退出后写入，然后重新启动。`, positiveText: "恢复", negativeText: "取消", onPositiveClick: async () => {
-    applying.value = true;
-    const { data, statusCode } = await api.restoreWorldSettingsBackup(id, { shutdown_seconds: 30, restart_delay_seconds: 10, message: "正在恢复服务器设置，将在 30 秒后重启。" });
-    applying.value = false;
-    if (statusCode.value !== 200) message.error(data.value?.error || "恢复失败"); else { message.success("备份已恢复"); await load(); }
-  }});
+function restoreBackup(id) {
+  restoreTarget.value = id;
+  restoreConfirmText.value = "";
+  restoreVisible.value = true;
+}
+
+async function submitRestoreBackup() {
+  if (restoreConfirmText.value !== "恢复" || applying.value) return;
+  applying.value = true;
+  const { data, statusCode } = await api.restoreWorldSettingsBackup(restoreTarget.value, {
+    shutdown_seconds: 30,
+    restart_delay_seconds: 10,
+    message: "正在恢复服务器设置，将在 30 秒后重启。",
+    confirmation: restoreConfirmText.value,
+  });
+  applying.value = false;
+  if (statusCode.value !== 200) {
+    message.error(data.value?.error || "恢复失败");
+    return;
+  }
+  restoreVisible.value = false;
+  message.success("备份已恢复");
+  await load();
 }
 
 onMounted(load);
@@ -191,6 +210,21 @@ onMounted(load);
       <n-form-item label="广播消息"><n-input v-model:value="restartMessage" /></n-form-item>
       <n-alert type="info">提交后将先保存世界并平滑关服，确认进程退出后才备份和写入；不会同时运行两个 PalServer。</n-alert>
       <template #footer><n-space justify="end"><n-button @click="showDiff=false">取消</n-button><n-button type="error" :disabled="confirmText !== '应用'" :loading="applying" @click="applyChanges">应用并重启</n-button></n-space></template>
+    </n-modal>
+
+    <n-modal v-model:show="restoreVisible" preset="card" title="恢复设置备份" style="width:min(560px,94vw)" :mask-closable="false">
+      <n-alert type="error" class="mb-4">
+        将恢复 {{ restoreTarget }}。PST 会保存世界、等待 PalServer 完全退出、写入备份，然后重新启动服务器。
+      </n-alert>
+      <n-form-item label="输入“恢复”确认">
+        <n-input v-model:value="restoreConfirmText" placeholder="恢复" autocomplete="off" @keyup.enter="submitRestoreBackup" />
+      </n-form-item>
+      <template #footer>
+        <n-space justify="end">
+          <n-button :disabled="applying" @click="restoreVisible=false">取消</n-button>
+          <n-button type="error" :disabled="restoreConfirmText !== '恢复'" :loading="applying" @click="submitRestoreBackup">恢复并重启</n-button>
+        </n-space>
+      </template>
     </n-modal>
   </operations-shell>
 </template>

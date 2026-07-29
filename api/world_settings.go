@@ -61,6 +61,10 @@ func applyWorldSettings(manager *worldsettings.Manager) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 			return
 		}
+		if request.Confirmation != "应用" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "请输入“应用”确认世界设置变更"})
+			return
+		}
 		result, err := manager.Apply(request)
 		if err != nil {
 			worldSettingsError(c, err)
@@ -89,6 +93,7 @@ type restoreWorldSettingsRequest struct {
 	ShutdownSeconds     int    `json:"shutdown_seconds"`
 	RestartDelaySeconds int    `json:"restart_delay_seconds"`
 	Message             string `json:"message"`
+	Confirmation        string `json:"confirmation"`
 }
 
 func restoreWorldSettingsBackup(manager *worldsettings.Manager) gin.HandlerFunc {
@@ -100,6 +105,10 @@ func restoreWorldSettingsBackup(manager *worldsettings.Manager) gin.HandlerFunc 
 		var request restoreWorldSettingsRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+			return
+		}
+		if request.Confirmation != "恢复" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "请输入“恢复”确认恢复设置备份"})
 			return
 		}
 		result, err := manager.RestoreBackup(c.Param("backup_id"), request.ShutdownSeconds, request.RestartDelaySeconds, request.Message)

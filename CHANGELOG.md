@@ -9,6 +9,10 @@
 - 修复 Bridge 一键安装忽略 `PalModSettings.ini` 中 `WorkshopRootDir`、错误写入默认 `Mods\Workshop` 的问题。
 - 修复“重新检测”只刷新旧状态的问题；现在会重新读取 Mod 配置、安装文件和运行时心跳，并清除上一轮维护遗留错误。
 
+### Changed
+
+- 危险操作改为分级确认：平滑重启和停服使用二次确认弹窗；服务器更新、设置备份恢复、世界设置应用和 Mod 维护继续要求输入确认词。
+
 ### Security
 
 - `WorkshopRootDir` 只从 PalServer 本地配置读取，前端不能指定；安装目标仍被限制在当前 PalServer 的 `Mods` 目录内。
