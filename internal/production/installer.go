@@ -86,6 +86,11 @@ func (installer *Installer) paths(processConfig supervisor.ProcessConfig) (Insta
 	if err != nil {
 		return InstallPaths{}, fmt.Errorf("解析 PalServer 根目录: %w", err)
 	}
+	settings := filepath.Join(root, "Mods", "PalModSettings.ini")
+	workshopRoot, err := resolveWorkshopRoot(settings, root)
+	if err != nil {
+		return InstallPaths{}, err
+	}
 	sourceRoot, err := installer.ExecutableDir()
 	if err != nil {
 		return InstallPaths{}, fmt.Errorf("解析 PST 目录: %w", err)
@@ -97,11 +102,77 @@ func (installer *Installer) paths(processConfig supervisor.ProcessConfig) (Insta
 	return InstallPaths{
 		PalServerRoot: root,
 		Source:        sourceRoot,
-		Target:        filepath.Join(root, "Mods", "Workshop", BridgeName),
-		Settings:      filepath.Join(root, "Mods", "PalModSettings.ini"),
+		Target:        filepath.Join(workshopRoot, BridgeName),
+		Settings:      settings,
 		UE4SS:         filepath.Join(root, "Mods", "NativeMods", "UE4SS"),
 		IPC:           filepath.Join(root, "Pal", "Saved", BridgeName),
 	}, nil
+}
+
+// resolveWorkshopRoot reads the Mod loader's own directory setting before
+// deciding where Bridge files belong. The browser cannot override this path.
+func resolveWorkshopRoot(settingsPath, palServerRoot string) (string, error) {
+	fallback := filepath.Join(palServerRoot, "Mods", "Workshop")
+	data, err := os.ReadFile(settingsPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return fallback, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("读取 PalModSettings.ini 中的 WorkshopRootDir: %w", err)
+	}
+
+	configured := ""
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "\ufeff"))
+		if line == "" || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "WorkshopRootDir") {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			first, last := value[0], value[len(value)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				value = strings.TrimSpace(value[1 : len(value)-1])
+			}
+		}
+		configured = value
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("解析 PalModSettings.ini 中的 WorkshopRootDir: %w", err)
+	}
+	if configured == "" {
+		return fallback, nil
+	}
+	for _, character := range configured {
+		if character == 0 || character == '\r' || character == '\n' || (character < 0x20 && character != '\t') {
+			return "", errors.New("PalModSettings.ini 中的 WorkshopRootDir 包含非法控制字符")
+		}
+	}
+
+	workshopRoot := configured
+	if !filepath.IsAbs(workshopRoot) {
+		clean := filepath.Clean(workshopRoot)
+		if clean == "Mods" || strings.HasPrefix(clean, "Mods"+string(filepath.Separator)) {
+			workshopRoot = filepath.Join(palServerRoot, clean)
+		} else {
+			workshopRoot = filepath.Join(palServerRoot, "Mods", clean)
+		}
+	}
+	workshopRoot, err = filepath.Abs(workshopRoot)
+	if err != nil {
+		return "", fmt.Errorf("解析 WorkshopRootDir: %w", err)
+	}
+	modsRoot := filepath.Join(palServerRoot, "Mods")
+	relative, err := filepath.Rel(modsRoot, workshopRoot)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", errors.New("PalModSettings.ini 中的 WorkshopRootDir 必须位于 PalServer 的 Mods 目录内")
+	}
+	return workshopRoot, nil
 }
 
 func (installer *Installer) Detect(processConfig supervisor.ProcessConfig) InstallDetection {

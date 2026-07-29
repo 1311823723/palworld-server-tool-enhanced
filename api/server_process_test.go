@@ -93,6 +93,7 @@ func TestProductionMutationAPIsRequireAdministratorJWT(t *testing.T) {
 	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
 	defer store.Close()
 	for _, path := range []string{
+		"/api/production/bridge/recheck",
 		"/api/production/bridge/install",
 		"/api/production/bridge/repair",
 		"/api/production/bridge/disable",

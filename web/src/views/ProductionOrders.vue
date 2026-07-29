@@ -127,6 +127,20 @@ async function loadBridge(silent = false) {
   bridge.value = data.value || bridge.value;
 }
 
+async function recheckBridge() {
+  if (action.value) return;
+  action.value = "bridge-recheck";
+  const { data, statusCode } = await api.recheckProductionBridge();
+  action.value = "";
+  if (Number(statusCode.value) !== 200) {
+    message.error(data.value?.error || "Bridge 重新检测失败");
+    return;
+  }
+  bridge.value = data.value || bridge.value;
+  await Promise.all([loadCatalog(true), loadOrders(true)]);
+  message.success(`检测完成：${bridge.value.message || "状态已更新"}`);
+}
+
 async function loadCatalog(silent = false) {
   if (!bridge.value.catalog_available && bridge.value.state !== "healthy") return;
   const { data, statusCode } = await api.getProductionCatalog();
@@ -283,7 +297,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
         <n-button v-if="canInstall" type="primary" @click="openMaintenance('install')">{{ installButtonLabel }}</n-button>
         <n-button v-if="canRepair" type="warning" @click="openMaintenance('repair')">修复已修改文件</n-button>
         <n-button v-if="canDisable" secondary type="error" @click="openMaintenance('disable')">安全禁用</n-button>
-        <n-button :loading="loading" secondary @click="load">重新检测</n-button>
+        <n-button :loading="action === 'bridge-recheck'" :disabled="Boolean(action && action !== 'bridge-recheck')" secondary @click="recheckBridge">重新检测</n-button>
       </div>
     </section>
 

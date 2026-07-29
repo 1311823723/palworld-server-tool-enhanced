@@ -142,6 +142,7 @@ func registerRouter(r *gin.Engine, onConfigInitialized func(), processManager Se
 		authGroup.POST("/server/update/apply", applyServerUpdate(processManager))
 		authGroup.POST("/server/restart-schedule/preview", previewServerRestartSchedule)
 		authGroup.GET("/production/bridge", getProductionBridge(productionManager))
+		authGroup.POST("/production/bridge/recheck", recheckProductionBridge(productionManager))
 		authGroup.POST("/production/bridge/install", installProductionBridge(productionManager, false, false))
 		authGroup.POST("/production/bridge/repair", installProductionBridge(productionManager, true, false))
 		authGroup.POST("/production/bridge/disable", installProductionBridge(productionManager, false, true))

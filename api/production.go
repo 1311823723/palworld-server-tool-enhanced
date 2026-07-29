@@ -20,6 +20,16 @@ func getProductionBridge(manager *production.Manager) gin.HandlerFunc {
 	}
 }
 
+func recheckProductionBridge(manager *production.Manager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if manager == nil {
+			c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "生产 Bridge 管理器不可用"})
+			return
+		}
+		c.JSON(http.StatusOK, manager.RecheckBridge())
+	}
+}
+
 func installProductionBridge(manager *production.Manager, repair, disable bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if manager == nil {

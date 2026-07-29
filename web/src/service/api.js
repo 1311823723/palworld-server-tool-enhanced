@@ -85,6 +85,9 @@ class ApiService extends Service {
   async getProductionBridge() {
     return this.fetch(`/api/production/bridge`).get().json();
   }
+  async recheckProductionBridge() {
+    return this.fetch(`/api/production/bridge/recheck`).post().json();
+  }
   async installProductionBridge(param) {
     return this.fetch(`/api/production/bridge/install`).post(param).json();
   }
