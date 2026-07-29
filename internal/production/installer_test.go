@@ -116,6 +116,109 @@ func TestInstallPreservesINIAndRollback(t *testing.T) {
 	}
 }
 
+func TestEnableModAddsOneDedicatedEntryForRepeatedModLists(t *testing.T) {
+	original := strings.Join([]string{
+		"[PalModSettings]",
+		"bGlobalEnableMod=true",
+		"ActiveModList=CreativeMenu",
+		"ActiveModList=PaldarMinimap",
+		"ActiveModList=NoBuildingLimits100",
+		"UnknownSetting=42",
+		"",
+	}, "\r\n")
+
+	updated := enableMod(original, true)
+	if count := bridgeActivationCount(updated); count != 1 {
+		t.Fatalf("Bridge activation count = %d, want 1:\n%s", count, updated)
+	}
+	for _, expected := range []string{
+		"ActiveModList=CreativeMenu",
+		"ActiveModList=PaldarMinimap",
+		"ActiveModList=NoBuildingLimits100",
+		"ActiveModList=" + BridgeName,
+		"UnknownSetting=42",
+	} {
+		if !strings.Contains(updated, expected) {
+			t.Fatalf("updated INI is missing %q:\n%s", expected, updated)
+		}
+	}
+	if strings.Contains(updated, "CreativeMenu,"+BridgeName) {
+		t.Fatalf("Bridge must not be appended to an existing mod entry:\n%s", updated)
+	}
+}
+
+func TestEnableModRepairsPollutedRepeatedModLists(t *testing.T) {
+	polluted := strings.Join([]string{
+		"[PalModSettings]",
+		"bGlobalEnableMod=true",
+		"ActiveModList=CreativeMenu," + BridgeName,
+		"ActiveModList=PaldarMinimap," + BridgeName,
+		"ActiveModList=" + BridgeName,
+		"",
+	}, "\r\n")
+
+	repaired := enableMod(polluted, true)
+	if count := bridgeActivationCount(repaired); count != 1 {
+		t.Fatalf("Bridge activation count after repair = %d, want 1:\n%s", count, repaired)
+	}
+	for _, expected := range []string{"ActiveModList=CreativeMenu", "ActiveModList=PaldarMinimap"} {
+		if !strings.Contains(repaired, expected) {
+			t.Fatalf("repair removed existing mod %q:\n%s", expected, repaired)
+		}
+	}
+
+	disabled := enableMod(repaired, false)
+	if count := bridgeActivationCount(disabled); count != 0 {
+		t.Fatalf("Bridge activation count after disable = %d, want 0:\n%s", count, disabled)
+	}
+	for _, expected := range []string{"ActiveModList=CreativeMenu", "ActiveModList=PaldarMinimap"} {
+		if !strings.Contains(disabled, expected) {
+			t.Fatalf("disable removed existing mod %q:\n%s", expected, disabled)
+		}
+	}
+}
+
+func TestDetectAndRepairDuplicateBridgeActivation(t *testing.T) {
+	installer, processConfig, paths := prepareInstallerTest(t, true)
+	transaction, err := installer.Install(processConfig, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	polluted := "bGlobalEnableMod=true\r\nActiveModList=ExistingMod," + BridgeName +
+		"\r\nActiveModList=AnotherMod," + BridgeName + "\r\n"
+	if err := os.WriteFile(paths.Settings, []byte(polluted), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	detection := installer.Detect(processConfig)
+	if detection.State != BridgeModified || !strings.Contains(detection.Message, "重复") {
+		t.Fatalf("detection = %#v, want duplicate activation repair state", detection)
+	}
+
+	repair, err := installer.Install(processConfig, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repair.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(paths.Settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := bridgeActivationCount(string(updated)); count != 1 {
+		t.Fatalf("Bridge activation count after installer repair = %d, want 1:\n%s", count, updated)
+	}
+	for _, expected := range []string{"ActiveModList=ExistingMod", "ActiveModList=AnotherMod"} {
+		if !strings.Contains(string(updated), expected) {
+			t.Fatalf("repair removed existing mod %q:\n%s", expected, updated)
+		}
+	}
+}
+
 func TestDisableRollbackDoesNotDeleteBridgeFiles(t *testing.T) {
 	installer, processConfig, paths := prepareInstallerTest(t, true)
 	transaction, err := installer.Install(processConfig, false)
