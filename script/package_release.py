@@ -13,6 +13,7 @@ import tempfile
 import zipfile
 
 from verify_map import verify_map
+from verify_bridge import verify_bridge
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +63,7 @@ def package(version: str, goos: str, goarch: str, sav_cli: Path, output: Path) -
         if not required.exists():
             raise FileNotFoundError(f"frontend build artifact is missing: {required}")
     verify_map(ROOT / "map")
+    verify_bridge(ROOT / "extras" / "PSTProductionBridge")
 
     windows = goos == "windows"
     executable_suffix = ".exe" if windows else ""
