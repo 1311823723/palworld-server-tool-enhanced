@@ -1,5 +1,13 @@
 import { useFetch } from "@vueuse/core";
-import router from "@/router";
+import { localizeResponseMessages } from "@/utils/apiError";
+
+const REQUEST_TIMEOUT_MS = 8000;
+
+const publishConnectionState = (detail) => {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pst-connection-state", { detail }));
+  }
+};
 
 class Service {
   /**
@@ -11,6 +19,7 @@ class Service {
   fetch(url) {
     return useFetch(`${url}`, {
       updateDataOnError: true,
+      timeout: REQUEST_TIMEOUT_MS,
       beforeFetch({ options }) {
         const token = localStorage.getItem("palworld_token");
         options.headers = {
@@ -23,10 +32,32 @@ class Service {
           options,
         };
       },
+      afterFetch(context) {
+        context.data = localizeResponseMessages(
+          context.data,
+          !context.response?.ok,
+        );
+        publishConnectionState({ state: "online", message: "" });
+        return context;
+      },
       onFetchError(context) {
-        if (context.response.status === 401) {
+        const status = context.response?.status;
+        if (status === 401) {
           localStorage.removeItem("palworld_token");
-          return context;
+        }
+        if (!context.response) {
+          const timedOut = /timeout|aborted/i.test(String(context.error || ""));
+          context.data = {
+            error: timedOut
+              ? "连接 PST 超过 8 秒没有响应"
+              : "无法连接 PST",
+          };
+          publishConnectionState({
+            state: timedOut ? "timeout" : "offline",
+            message: timedOut
+              ? "PST 超过 8 秒没有响应"
+              : "当前无法连接 PST",
+          });
         }
         return context;
       },
@@ -43,8 +74,10 @@ class Service {
     const entries = Object.entries(credential);
     return entries
       .reduce((accumulation, [key, value]) => {
-        if (value) {
-          accumulation.push(`${key}=${value}`);
+        if (value !== undefined && value !== null && value !== "") {
+          accumulation.push(
+            `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+          );
         }
         return accumulation;
       }, [])

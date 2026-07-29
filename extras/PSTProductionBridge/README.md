@@ -1,4 +1,4 @@
-PST Production Bridge 0.1.0
+PST Production Bridge 0.1.1
 
 这是 PST 专服增强版随包提供的服务端 Bridge。
 
@@ -11,3 +11,11 @@ PST Production Bridge 0.1.0
 
 PST 不携带、不安装、不升级 UE4SS。请自行确认 UE4SS 与当前 Palworld
 Dedicated Server 版本兼容。
+
+启动成功后，Palworld 官方 Mod Loader 应创建：
+
+`Mods\ManagedMods\PSTProductionBridge\InstallManifest.json`
+
+并把 Lua 部署到：
+
+`Mods\NativeMods\UE4SS\Mods\PSTProductionBridge`

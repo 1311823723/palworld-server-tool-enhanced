@@ -37,7 +37,12 @@ func prepareInstallerTest(t *testing.T, withUE4SS bool) (*Installer, supervisor.
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"Info.json":        `{"Name":"PSTProductionBridge"}`,
+		"Info.json": `{
+			"ModName":"PST Production Bridge",
+			"PackageName":"PSTProductionBridge",
+			"Version":"` + BridgeVersion + `",
+			"InstallRule":[{"Type":"Lua","IsServer":true,"Targets":["./Scripts"]}]
+		}`,
 		"Scripts/main.lua": `print("bridge")`,
 	}
 	manifest := Manifest{Name: BridgeName, Version: BridgeVersion, ProtocolVersion: BridgeProtocolVersion}
@@ -66,6 +71,53 @@ func prepareInstallerTest(t *testing.T, withUE4SS bool) (*Installer, supervisor.
 		t.Fatal(err)
 	}
 	return installer, processConfig, paths
+}
+
+func TestBundledPackageRequiresOfficialServerLuaRule(t *testing.T) {
+	_, _, paths := prepareInstallerTest(t, true)
+	infoPath := filepath.Join(paths.Source, "Info.json")
+	if err := os.WriteFile(infoPath, []byte(`{
+		"PackageName":"PSTProductionBridge",
+		"Version":"`+BridgeVersion+`",
+		"InstallRule":[{"Type":"Lua","Targets":["./Scripts"]}]
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := readManifest(paths.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range manifest.Files {
+		if manifest.Files[index].Path == "Info.json" {
+			manifest.Files[index].SHA256, err = fileSHA256(infoPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.Source, "manifest.json"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = readAndVerifyManifest(paths.Source)
+	if err == nil || !strings.Contains(err.Error(), "Lua InstallRule") {
+		t.Fatalf("invalid server package error = %v", err)
+	}
+}
+
+func TestRepositoryBundledBridgePackageIsValid(t *testing.T) {
+	root := filepath.Join("..", "..", "extras", BridgeName)
+	manifest, err := readAndVerifyManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Version != BridgeVersion {
+		t.Fatalf("bundled version = %q, want %q", manifest.Version, BridgeVersion)
+	}
 }
 
 func TestDetectRequiresUE4SSWithoutManagingIt(t *testing.T) {

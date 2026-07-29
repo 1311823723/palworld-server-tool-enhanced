@@ -37,6 +37,18 @@ type Manifest struct {
 	Files           []ManifestFile `json:"files"`
 }
 
+type packageInstallRule struct {
+	Type     string   `json:"Type"`
+	IsServer bool     `json:"IsServer"`
+	Targets  []string `json:"Targets"`
+}
+
+type packageInfo struct {
+	PackageName string               `json:"PackageName"`
+	Version     string               `json:"Version"`
+	InstallRule []packageInstallRule `json:"InstallRule"`
+}
+
 type InstallPaths struct {
 	PalServerRoot string
 	Source        string
@@ -44,6 +56,9 @@ type InstallPaths struct {
 	Settings      string
 	UE4SS         string
 	IPC           string
+	Managed       string
+	Runtime       string
+	UE4SSLog      string
 }
 
 type InstallDetection struct {
@@ -106,6 +121,9 @@ func (installer *Installer) paths(processConfig supervisor.ProcessConfig) (Insta
 		Settings:      settings,
 		UE4SS:         filepath.Join(root, "Mods", "NativeMods", "UE4SS"),
 		IPC:           filepath.Join(root, "Pal", "Saved", BridgeName),
+		Managed:       filepath.Join(root, "Mods", "ManagedMods", BridgeName, "InstallManifest.json"),
+		Runtime:       filepath.Join(root, "Mods", "NativeMods", "UE4SS", "Mods", BridgeName),
+		UE4SSLog:      filepath.Join(root, "Mods", "NativeMods", "UE4SS", "UE4SS.log"),
 	}, nil
 }
 
@@ -299,6 +317,9 @@ func (detection InstallDetection) ManualGuide() *ManualInstallGuide {
 		TargetDirectory:     detection.Paths.Target,
 		SettingsPath:        detection.Paths.Settings,
 		UE4SSDirectory:      detection.Paths.UE4SS,
+		ManagedManifestPath: detection.Paths.Managed,
+		RuntimeDirectory:    detection.Paths.Runtime,
+		UE4SSLogPath:        detection.Paths.UE4SSLog,
 		AutomaticInstallOK:  detection.Automatic,
 		AutomaticBlockCause: detection.BlockReason,
 		Steps: []string{
@@ -306,7 +327,8 @@ func (detection InstallDetection) ManualGuide() *ManualInstallGuide {
 			"自行安装与当前 Palworld Build 兼容的 UE4SS；PST 不会安装或覆盖 UE4SS。",
 			"将 Bridge 安装包完整复制到目标目录，不要改名或合并到其他 Mod。",
 			"在 PalModSettings.ini 中设置 bGlobalEnableMod=true，并把 PSTProductionBridge 加入 ActiveModList。",
-			"启动 PalServer，回到生产订单页确认 Bridge 心跳和能力状态。",
+			"启动 PalServer，确认 ManagedMods 中已生成安装清单，且 UE4SS 运行目录中已部署 Bridge。",
+			"回到生产订单页点击“重新检测”；仍无心跳时检查 UE4SS.log 中的 PSTProductionBridge 报错。",
 		},
 	}
 }
@@ -516,7 +538,43 @@ func readAndVerifyManifest(root string) (Manifest, error) {
 			return manifest, fmt.Errorf("%s SHA-256 不匹配", file.Path)
 		}
 	}
+	if err := validatePackageInfo(root, manifest); err != nil {
+		return manifest, err
+	}
 	return manifest, nil
+}
+
+func validatePackageInfo(root string, manifest Manifest) error {
+	infoPath, err := safeChild(root, "Info.json")
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(infoPath)
+	if err != nil {
+		return fmt.Errorf("读取 Info.json: %w", err)
+	}
+	var info packageInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return fmt.Errorf("解析 Info.json: %w", err)
+	}
+	if info.PackageName != BridgeName {
+		return fmt.Errorf("Info.json PackageName 必须为 %s", BridgeName)
+	}
+	if info.Version != manifest.Version {
+		return errors.New("Info.json 与 Bridge 清单版本不一致")
+	}
+	for _, rule := range info.InstallRule {
+		if !strings.EqualFold(strings.TrimSpace(rule.Type), "Lua") || !rule.IsServer {
+			continue
+		}
+		for _, target := range rule.Targets {
+			clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target)))
+			if clean == "Scripts" {
+				return nil
+			}
+		}
+	}
+	return errors.New("Info.json 缺少面向专用服务器的 Lua InstallRule")
 }
 
 func verifyInstalled(root string, expected Manifest) (bool, error) {
@@ -597,7 +655,7 @@ func validateInstallPaths(paths InstallPaths) error {
 	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
 		return errors.New("PalServer 根目录不是普通目录")
 	}
-	for _, path := range []string{paths.Target, paths.Settings, paths.UE4SS, paths.IPC} {
+	for _, path := range []string{paths.Target, paths.Settings, paths.UE4SS, paths.IPC, paths.Managed, paths.Runtime, paths.UE4SSLog} {
 		if err := ensureNoSymlinkPath(paths.PalServerRoot, path); err != nil {
 			return err
 		}

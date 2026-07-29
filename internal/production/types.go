@@ -4,7 +4,7 @@ import "time"
 
 const (
 	BridgeName            = "PSTProductionBridge"
-	BridgeVersion         = "0.1.0"
+	BridgeVersion         = "0.1.1"
 	BridgeProtocolVersion = 1
 )
 
@@ -31,6 +31,9 @@ type ManualInstallGuide struct {
 	TargetDirectory     string   `json:"target_directory,omitempty"`
 	SettingsPath        string   `json:"settings_path,omitempty"`
 	UE4SSDirectory      string   `json:"ue4ss_directory,omitempty"`
+	ManagedManifestPath string   `json:"managed_manifest_path,omitempty"`
+	RuntimeDirectory    string   `json:"runtime_directory,omitempty"`
+	UE4SSLogPath        string   `json:"ue4ss_log_path,omitempty"`
 	Steps               []string `json:"steps"`
 	AutomaticInstallOK  bool     `json:"automatic_install_available"`
 	AutomaticBlockCause string   `json:"automatic_install_block_reason,omitempty"`

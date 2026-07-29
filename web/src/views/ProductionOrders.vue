@@ -4,16 +4,20 @@ import { useDialog, useMessage } from "naive-ui";
 import ApiService from "@/service/api";
 import OperationsShell from "@/components/OperationsShell.vue";
 import itemsMap from "@/assets/items.json";
+import { apiErrorText, translateBackendMessage } from "@/utils/apiError";
 
 const api = new ApiService();
 const message = useMessage();
 const dialog = useDialog();
 const loading = ref(false);
+const activeSection = ref("bridge");
+const loadedSections = ref(new Set());
+const sectionError = ref("");
 const action = ref("");
 const bridge = ref({
   state: "unconfigured",
   message: "正在检测 Production Bridge",
-  bundled_version: "0.1.0",
+  bundled_version: "0.1.1",
   orders_available: false,
   catalog_available: false,
 });
@@ -118,45 +122,65 @@ const formatTime = (value) => value ? new Date(value).toLocaleString("zh-CN") : 
 
 async function loadBridge(silent = false) {
   if (!silent) loading.value = true;
-  const { data, statusCode } = await api.getProductionBridge();
+  const { data, statusCode, error } = await api.getProductionBridge();
   if (!silent) loading.value = false;
   if (Number(statusCode.value) !== 200) {
-    if (!silent) message.error(data.value?.error || "Bridge 状态读取失败");
+    const text = apiErrorText(data.value, "Bridge 状态读取失败", statusCode.value, error.value);
+    sectionError.value = text;
+    if (!silent) message.error(text);
     return;
   }
+  sectionError.value = "";
   bridge.value = data.value || bridge.value;
+  loadedSections.value = new Set([...loadedSections.value, "bridge"]);
 }
 
 async function recheckBridge() {
   if (action.value) return;
   action.value = "bridge-recheck";
-  const { data, statusCode } = await api.recheckProductionBridge();
+  const { data, statusCode, error } = await api.recheckProductionBridge();
   action.value = "";
   if (Number(statusCode.value) !== 200) {
-    message.error(data.value?.error || "Bridge 重新检测失败");
+    message.error(apiErrorText(data.value, "Bridge 重新检测失败", statusCode.value, error.value));
     return;
   }
   bridge.value = data.value || bridge.value;
-  await Promise.all([loadCatalog(true), loadOrders(true)]);
   message.success(`检测完成：${bridge.value.message || "状态已更新"}`);
 }
 
 async function loadCatalog(silent = false) {
   if (!bridge.value.catalog_available && bridge.value.state !== "healthy") return;
-  const { data, statusCode } = await api.getProductionCatalog();
-  if (Number(statusCode.value) === 200) catalog.value = data.value || { bases: [] };
-  else if (!silent) message.error(data.value?.error || "生产目录读取失败");
+  const { data, statusCode, error } = await api.getProductionCatalog();
+  if (Number(statusCode.value) === 200) {
+    catalog.value = data.value || { bases: [] };
+    loadedSections.value = new Set([...loadedSections.value, "create"]);
+    sectionError.value = "";
+  } else {
+    const text = apiErrorText(data.value, "生产目录读取失败", statusCode.value, error.value);
+    sectionError.value = text;
+    if (!silent) message.error(text);
+  }
 }
 
 async function loadOrders(silent = false) {
-  const { data, statusCode } = await api.getProductionOrders({ limit: 200 });
-  if (Number(statusCode.value) === 200) orders.value = data.value?.items || [];
-  else if (!silent) message.error(data.value?.error || "订单历史读取失败");
+  const { data, statusCode, error } = await api.getProductionOrders({ limit: 200 });
+  if (Number(statusCode.value) === 200) {
+    orders.value = data.value?.items || [];
+    loadedSections.value = new Set([...loadedSections.value, "orders"]);
+    sectionError.value = "";
+  } else {
+    const text = apiErrorText(data.value, "订单历史读取失败", statusCode.value, error.value);
+    sectionError.value = text;
+    if (!silent) message.error(text);
+  }
 }
 
 async function load(silent = false) {
-  await loadBridge(silent);
-  await Promise.all([loadCatalog(silent), loadOrders(silent)]);
+  if (activeSection.value === "bridge") await loadBridge(silent);
+  else if (activeSection.value === "create") {
+    await loadBridge(true);
+    await loadCatalog(silent);
+  } else await loadOrders(silent);
 }
 
 function openMaintenance(kind) {
@@ -176,10 +200,10 @@ async function submitMaintenance() {
     repair: "repairProductionBridge",
     disable: "disableProductionBridge",
   }[installAction.value];
-  const { data, statusCode } = await api[method]({ ...installForm });
+  const { data, statusCode, error } = await api[method]({ ...installForm });
   action.value = "";
   if (Number(statusCode.value) !== 202) {
-    message.error(data.value?.error || "Bridge 维护流程启动失败");
+    message.error(apiErrorText(data.value, "Bridge 维护流程启动失败", statusCode.value, error.value));
     return;
   }
   installOpen.value = false;
@@ -199,11 +223,11 @@ async function copyText(value) {
 async function runPreview() {
   if (!canPreview.value || action.value) return;
   action.value = "preview";
-  const { data, statusCode } = await api.previewProductionOrder({ ...orderForm, quantity: Number(orderForm.quantity || 0) });
+  const { data, statusCode, error } = await api.previewProductionOrder({ ...orderForm, quantity: Number(orderForm.quantity || 0) });
   action.value = "";
   if (Number(statusCode.value) !== 200) {
     preview.value = null;
-    message.error(data.value?.error || "材料预览失败");
+    message.error(apiErrorText(data.value, "材料预览失败", statusCode.value, error.value));
     return;
   }
   preview.value = data.value;
@@ -212,10 +236,10 @@ async function runPreview() {
 async function submitOrder() {
   if (!canSubmit.value) return;
   action.value = "create-order";
-  const { data, statusCode } = await api.createProductionOrder({ ...orderForm, quantity: Number(orderForm.quantity || 0) });
+  const { data, statusCode, error } = await api.createProductionOrder({ ...orderForm, quantity: Number(orderForm.quantity || 0) });
   action.value = "";
   if (Number(statusCode.value) !== 201) {
-    message.error(data.value?.error || "生产订单提交失败");
+    message.error(apiErrorText(data.value, "生产订单提交失败", statusCode.value, error.value));
     return;
   }
   message.success(`订单 ${shortID(data.value?.order_id)} 已派发`);
@@ -231,9 +255,9 @@ function cancelOrder(order) {
     negativeText: "返回",
     onPositiveClick: async () => {
       action.value = `cancel-${order.order_id}`;
-      const { data, statusCode } = await api.cancelProductionOrder(order.order_id);
+      const { data, statusCode, error } = await api.cancelProductionOrder(order.order_id);
       action.value = "";
-      if (Number(statusCode.value) !== 200) message.error(data.value?.error || "订单取消失败");
+      if (Number(statusCode.value) !== 200) message.error(apiErrorText(data.value, "订单取消失败", statusCode.value, error.value));
       else {
         message.success("取消请求已发送给 Bridge");
         await loadOrders();
@@ -254,10 +278,21 @@ watch(() => orderForm.workstation_actor_guid, () => {
 watch([() => orderForm.recipe_id, () => orderForm.quantity_mode, () => orderForm.quantity], () => {
   preview.value = null;
 });
+watch(activeSection, async () => {
+  sectionError.value = "";
+  if (!loadedSections.value.has(activeSection.value)) {
+    loading.value = true;
+    await load();
+    loading.value = false;
+  }
+});
 
 onMounted(async () => {
-  await load();
-  pollTimer = window.setInterval(() => load(true), 2500);
+  await loadBridge();
+  pollTimer = window.setInterval(() => {
+    if (activeSection.value === "bridge" && ["installing", "offline", "restart_required"].includes(bridge.value.state)) loadBridge(true);
+    else if (activeSection.value === "orders") loadOrders(true);
+  }, 2500);
 });
 onBeforeUnmount(() => window.clearInterval(pollTimer));
 </script>
@@ -265,14 +300,28 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
 <template>
   <operations-shell
     title="生产订单"
-    subtitle="通过本机 Production Bridge 向指定据点工作台安排生产；不修改存档，日常下单无需停服。"
+    subtitle="检查 Bridge、创建生产订单并查看执行结果。"
     :loading="loading"
     @refresh="load"
   >
-    <section class="bridge-panel">
+    <n-tabs v-model:value="activeSection" type="segment" animated class="production-steps">
+      <n-tab name="bridge">1. Bridge 状态</n-tab>
+      <n-tab name="create" :disabled="!bridge.orders_available">2. 新建订单</n-tab>
+      <n-tab name="orders">3. 订单记录</n-tab>
+    </n-tabs>
+
+    <n-alert v-if="sectionError" type="error" class="section-error">
+      <div class="retry-row"><span>{{ sectionError }}</span><n-button size="small" secondary @click="load">重试</n-button></div>
+    </n-alert>
+    <div v-if="loading && !loadedSections.has(activeSection)" class="section-skeleton">
+      <n-skeleton text :repeat="2" />
+      <n-skeleton height="240px" />
+    </div>
+
+    <section v-else-if="activeSection === 'bridge'" class="bridge-panel">
       <header class="panel-heading">
         <div>
-          <h2>PST Production Bridge</h2>
+          <h2>Bridge 状态</h2>
           <p>{{ bridge.message }}</p>
         </div>
         <n-tag :type="statePresentation[1]" :bordered="false" round>{{ statePresentation[0] }}</n-tag>
@@ -292,7 +341,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
         status="success"
         class="install-progress"
       />
-      <n-alert v-if="bridge.last_error" type="error" class="bridge-alert">{{ bridge.last_error }}</n-alert>
+      <n-alert v-if="bridge.last_error" type="error" class="bridge-alert">{{ translateBackendMessage(bridge.last_error) }}</n-alert>
       <div class="bridge-actions">
         <n-button v-if="canInstall" type="primary" @click="openMaintenance('install')">{{ installButtonLabel }}</n-button>
         <n-button v-if="canRepair" type="warning" @click="openMaintenance('repair')">修复已修改文件</n-button>
@@ -301,18 +350,21 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
       </div>
     </section>
 
-    <n-alert v-if="bridge.state === 'dependency_missing'" type="warning" class="section-gap">
+    <n-alert v-if="activeSection === 'bridge' && bridge.state === 'dependency_missing'" type="warning" class="section-gap">
       PST 不会自动安装、升级或覆盖 UE4SS。请先人工安装与当前 Palworld Build 兼容的 UE4SS，再返回此页检测。
     </n-alert>
 
-    <n-collapse v-if="bridge.manual_install" class="manual-panel section-gap">
-      <n-collapse-item title="查看人工安装路径与步骤" name="manual">
+    <n-collapse v-if="activeSection === 'bridge' && bridge.manual_install" class="manual-panel section-gap">
+      <n-collapse-item title="了解更多：人工安装路径与排查步骤" name="manual">
         <div class="path-list">
           <div v-for="entry in [
             ['Release 安装包', bridge.manual_install.source_directory],
             ['Bridge 目标目录', bridge.manual_install.target_directory],
             ['PalModSettings.ini', bridge.manual_install.settings_path],
             ['UE4SS 预期目录', bridge.manual_install.ue4ss_directory],
+            ['Palworld 部署清单', bridge.manual_install.managed_manifest_path],
+            ['Bridge 运行目录', bridge.manual_install.runtime_directory],
+            ['UE4SS 日志', bridge.manual_install.ue4ss_log_path],
           ]" :key="entry[0]">
             <span>{{ entry[0] }}</span>
             <code>{{ entry[1] || "尚未推导" }}</code>
@@ -325,10 +377,10 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
       </n-collapse-item>
     </n-collapse>
 
-    <section v-if="bridge.orders_available" class="order-workspace section-gap">
+    <section v-if="activeSection === 'create' && bridge.orders_available" class="order-workspace">
       <div class="order-form">
         <header class="panel-heading">
-          <div><h2>创建生产订单</h2><p>选择据点、具体工作台和配方。提交时 Bridge 会再次校验归属、材料和队列。</p></div>
+          <div><h2>新建订单</h2><p>依次选择据点、工作台和要生产的物品。</p></div>
         </header>
         <div class="form-grid">
           <n-form-item label="据点">
@@ -368,19 +420,19 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
             <div><strong>{{ itemLabel(material.item_id, material.name) }}</strong><small>{{ material.item_id }}</small></div>
             <div><span>每件 {{ material.required_each }}</span><b :class="{ shortage: material.shortage }">{{ material.available }} / {{ material.required }}</b></div>
           </div>
-          <n-alert v-if="!preview.can_submit" type="warning" :bordered="false">{{ preview.reason || "当前无法提交" }}</n-alert>
+          <n-alert v-if="!preview.can_submit" type="warning" :bordered="false">{{ translateBackendMessage(preview.reason || "当前无法提交") }}</n-alert>
         </template>
         <n-empty v-else description="选择配方后检查材料，预览不会预留库存" />
       </aside>
     </section>
 
-    <n-alert v-else-if="bridge.state === 'incompatible'" type="error" class="section-gap">
+    <n-alert v-else-if="activeSection === 'create' && bridge.state === 'incompatible'" type="error">
       Bridge 已加载，但当前 Palworld Build 的生产适配器未通过能力验证。PST 已停止接收订单，其他服务器功能不受影响。
     </n-alert>
 
-    <section class="orders-panel section-gap">
+    <section v-if="activeSection === 'orders'" class="orders-panel">
       <header class="panel-heading sticky-heading">
-        <div><h2>订单队列</h2><p>游戏接受后的订单不会被 PST 强制取消；状态无法可靠恢复时会标记为“状态未知”。</p></div>
+        <div><h2>订单记录</h2><p>查看生产进度和失败原因。</p></div>
         <n-button size="small" secondary @click="loadOrders">刷新</n-button>
       </header>
       <div v-if="orders.length" class="order-list">
@@ -399,10 +451,11 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
           </div>
           <n-button v-if="canCancel(order)" size="small" secondary type="error" :loading="action === `cancel-${order.order_id}`" @click="cancelOrder(order)">取消</n-button>
           <span v-else-if="order.cancellation_requested" class="cancel-note">取消确认中</span>
-          <p v-if="order.error" class="order-error">{{ order.error }}</p>
+          <p v-if="order.error" class="order-error">{{ translateBackendMessage(order.error) }}</p>
         </article>
       </div>
       <n-empty v-else description="还没有生产订单" class="empty-orders" />
+      <n-collapse class="orders-help"><n-collapse-item title="了解订单状态" name="orders-help"><p>游戏已经接受的订单不会被 PST 强制移除；重启后无法确认的订单会显示“状态未知”。</p></n-collapse-item></n-collapse>
     </section>
 
     <n-modal v-model:show="installOpen" :mask-closable="!action">
@@ -429,6 +482,10 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
 
 <style scoped>
 .section-gap { margin-top: 16px; }
+.production-steps { margin-bottom: 16px; }
+.section-error { margin-bottom: 14px; }
+.retry-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-skeleton { display: grid; gap: 14px; padding: 20px; border: 1px solid var(--ops-line); background: var(--ops-panel); }
 .bridge-panel, .order-form, .preview-panel, .orders-panel, .manual-panel {
   border: 1px solid var(--ops-line);
   border-radius: 13px;
@@ -468,6 +525,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
 .material-row b { margin-top: 3px; font: 650 13px/1 ui-monospace, monospace; }
 .material-row b.shortage { color: #c14e42; }
 .orders-panel { overflow: clip; }
+.orders-help { padding: 0 20px; border-top: 1px solid var(--ops-line); }
 .sticky-heading { position: sticky; top: 0; z-index: 2; padding: 17px 20px; border-bottom: 1px solid var(--ops-line); background: var(--ops-panel); }
 .order-list { max-height: 560px; overflow-y: auto; overscroll-behavior: contain; }
 .order-row { position: relative; display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(150px, .8fr) 130px auto; align-items: center; gap: 16px; min-height: 82px; padding: 14px 20px; border-bottom: 1px solid var(--ops-line); }

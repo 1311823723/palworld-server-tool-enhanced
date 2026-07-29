@@ -106,7 +106,7 @@ onMounted(load);
 <template>
   <operations-shell
     title="据点管理"
-    subtitle="为每个据点设置清晰、稳定的中文名称。名称仅保存在 PST 中，不会修改 Palworld 世界存档。"
+    subtitle="查看据点状态，并设置更容易辨认的名称。"
     :metadata="metadata"
     :loading="loading"
     @refresh="load"

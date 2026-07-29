@@ -8,11 +8,8 @@ import OperationsShell from "@/components/OperationsShell.vue";
 import ServerProcessCard from "@/components/ServerProcessCard.vue";
 import FirstRunSetup from "@/components/FirstRunSetup.vue";
 import ConfigManager from "@/components/ConfigManager.vue";
-import RconManager from "@/components/RconManager.vue";
-import BackupManager from "@/components/BackupManager.vue";
 import BroadcastComposer from "@/components/BroadcastComposer.vue";
-import ShutdownDialog from "@/components/ShutdownDialog.vue";
-import WhitelistManager from "@/components/WhitelistManager.vue";
+import { apiErrorText } from "@/utils/apiError";
 
 const route = useRoute();
 const api = new ApiService();
@@ -23,11 +20,8 @@ const configReady = ref(false);
 const loading = ref(false);
 const showLogin = ref(route.query.login === "required");
 const showConfig = ref(false);
-const showRcon = ref(false);
-const showBackup = ref(false);
 const showBroadcast = ref(false);
-const showShutdown = ref(false);
-const showWhitelist = ref(false);
+const backupAction = ref(false);
 const password = ref("");
 const serverInfo = ref({});
 const serverMetrics = ref({});
@@ -42,7 +36,6 @@ const syncAuth = () => {
   isAdmin.value = Boolean(localStorage.getItem("palworld_token"));
 };
 const asArray = (value) => (Array.isArray(value) ? value : []);
-const errorText = (data, fallback) => data?.error || fallback;
 
 const onlineCount = computed(() => Number(serverMetrics.value.current_player_num ?? onlinePlayers.value.length ?? 0));
 const maxPlayers = computed(() => serverMetrics.value.max_player_num ?? "—");
@@ -58,7 +51,7 @@ const uptimeText = computed(() => {
 const serverStatus = computed(() => serverInfo.value?.name ? "运行中" : "等待连接");
 const formatTime = (value) => value ? dayjs(value).format("MM月DD日 HH:mm") : "—";
 
-async function loadData() {
+async function loadData(silent = false) {
   loading.value = true;
   const [server, metrics, playerList, onlineList, baseList, tool] = await Promise.all([
     api.getServerInfo(),
@@ -78,7 +71,10 @@ async function loadData() {
     metadata.value = baseList.data.value?.metadata || metadata.value;
   }
   if (tool.statusCode.value === 200) toolInfo.value = tool.data.value || {};
-  if (server.statusCode.value >= 500 || baseList.statusCode.value >= 500) message.error(errorText(server.data.value, "服务器数据暂时无法读取"));
+  if (!silent && (server.statusCode.value >= 400 || baseList.statusCode.value >= 400)) {
+    const failed = server.statusCode.value >= 400 ? server : baseList;
+    message.error(apiErrorText(failed.data.value, "服务器数据暂时无法读取", failed.statusCode.value, failed.error?.value));
+  }
 }
 
 async function loadConfigStatus() {
@@ -88,9 +84,9 @@ async function loadConfigStatus() {
 }
 
 async function handleLogin() {
-  const { data, statusCode } = await api.login({ password: password.value });
+  const { data, statusCode, error } = await api.login({ password: password.value });
   if (statusCode.value !== 200 || !data.value?.token) {
-    message.error(statusCode.value === 401 ? "管理员密码不正确" : "登录失败，请稍后重试");
+    message.error(apiErrorText(data.value, "登录失败，请稍后重试", statusCode.value, error.value));
     password.value = "";
     return;
   }
@@ -101,6 +97,18 @@ async function handleLogin() {
   password.value = "";
   message.success("已进入管理模式");
   await loadData();
+}
+
+async function createBackup() {
+  if (backupAction.value) return;
+  backupAction.value = true;
+  const { data, statusCode, error } = await api.createBackup();
+  backupAction.value = false;
+  if (statusCode.value !== 200) {
+    message.error(apiErrorText(data.value, "备份创建失败", statusCode.value, error.value));
+    return;
+  }
+  message.success("存档备份已创建");
 }
 
 const handleInitialized = () => {
@@ -114,7 +122,7 @@ onMounted(async () => {
   await loadConfigStatus();
   if (initialized.value) {
     await loadData();
-    refreshTimer = window.setInterval(loadData, 30000);
+    refreshTimer = window.setInterval(() => loadData(true), 30000);
   }
 });
 onBeforeUnmount(() => {
@@ -125,7 +133,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="configReady">
-    <operations-shell title="总览" subtitle="查看服务器运行状态、在线玩家、世界数据与最近一次存档解析结果。" :metadata="metadata" :loading="loading" @refresh="loadData">
+    <operations-shell title="总览" subtitle="服务器状态、常用操作和需要处理的问题都在这里。" :metadata="metadata" :loading="loading" @refresh="loadData">
       <template #header-actions>
         <n-button v-if="isAdmin" type="primary" secondary @click="showConfig = true">打开配置</n-button>
       </template>
@@ -133,12 +141,25 @@ onBeforeUnmount(() => {
       <section class="server-hero">
         <div class="hero-icon">▤</div>
         <div class="hero-copy">
-          <span>PALWORLD SERVER</span>
+          <span>服务器状态</span>
           <h2>{{ serverInfo.name || "Palworld Dedicated Server" }}</h2>
           <p><i :class="{ online: serverInfo.name }" />{{ serverStatus }} · {{ serverInfo.version || "版本信息等待连接" }}</p>
         </div>
         <div class="hero-meta"><small>PST 版本</small><strong>{{ toolInfo.version || "开发版" }}</strong></div>
       </section>
+
+      <div v-if="isAdmin" class="process-card">
+        <server-process-card :is-admin="isAdmin" compact>
+          <template #actions>
+            <n-button secondary :loading="backupAction" :disabled="backupAction" @click="createBackup">立即备份</n-button>
+            <n-button secondary @click="showBroadcast = true">游戏内广播</n-button>
+          </template>
+        </server-process-card>
+      </div>
+      <n-card v-else class="visitor-process-card" size="small">
+        <div class="visitor-process-copy"><strong>服务器进程状态</strong><span>登录管理员账号后可查看进程、守护和启停控制。</span></div>
+        <n-button type="primary" secondary @click="showLogin = true">管理员登录</n-button>
+      </n-card>
 
       <n-grid cols="1 620:3" :x-gap="12" :y-gap="12" class="stat-grid">
         <n-gi><article class="metric-tile"><span class="metric-icon">♙</span><div><small>在线玩家</small><strong>{{ onlineCount }}<em>/ {{ maxPlayers }}</em></strong></div></article></n-gi>
@@ -146,16 +167,10 @@ onBeforeUnmount(() => {
         <n-gi><article class="metric-tile"><span class="metric-icon warning-icon">♡</span><div><small>需要关注的工作帕鲁</small><strong>{{ attentionCount }}</strong></div></article></n-gi>
       </n-grid>
 
-      <div v-if="isAdmin" class="process-card"><server-process-card :is-admin="isAdmin" /></div>
-      <n-card v-else class="visitor-process-card" size="small">
-        <div class="visitor-process-copy"><strong>服务器进程状态</strong><span>登录管理员账号后可查看进程、守护和启停控制。</span></div>
-        <n-button type="primary" secondary @click="showLogin = true">管理员登录</n-button>
-      </n-card>
-
       <n-grid cols="1 760:2" :x-gap="14" :y-gap="14" class="content-grid">
         <n-gi>
           <section class="panel activity-panel">
-            <header><div><span class="section-kicker">LIVE SNAPSHOT</span><h3>当前在线玩家</h3></div><router-link to="/players">查看全部</router-link></header>
+            <header><div><span class="section-kicker">玩家状态</span><h3>当前在线玩家</h3></div><router-link to="/players">查看全部</router-link></header>
             <n-list v-if="onlinePlayers.length" :show-divider="true">
               <n-list-item v-for="player in onlinePlayers.slice(0, 6)" :key="player.player_uid">
                 <div class="player-line"><span class="player-avatar">{{ (player.nickname || "?").slice(0, 1) }}</span><div><strong>{{ player.nickname || "未命名玩家" }}</strong><small>Lv.{{ player.level || 0 }} · {{ player.user_id?.split("_")[0] || "未知平台" }}</small></div><span class="online-dot">在线</span></div>
@@ -166,23 +181,26 @@ onBeforeUnmount(() => {
         </n-gi>
         <n-gi>
           <section class="panel snapshot-panel">
-            <header><div><span class="section-kicker">WORLD DATA</span><h3>世界数据</h3></div><router-link to="/base-camps">据点管理</router-link></header>
+            <header><div><span class="section-kicker">存档状态</span><h3>世界数据</h3></div><router-link to="/base-camps">据点管理</router-link></header>
             <div class="snapshot-summary"><strong>{{ bases.length }}</strong><span>个据点</span><strong>{{ players.length }}</strong><span>名已记录玩家</span></div>
             <div class="snapshot-row"><span>最近一次存档解析</span><b>{{ formatTime(metadata.snapshot_time) }}</b></div>
             <div class="snapshot-row"><span>下次同步间隔</span><b>每 {{ metadata.sync_interval_seconds || 120 }} 秒</b></div>
-            <p class="muted-copy">数据来自最近一次存档解析，并非游戏内实时遥测。</p>
+            <n-collapse class="snapshot-help">
+              <n-collapse-item title="了解数据更新时间" name="snapshot-help">
+                <p class="muted-copy">玩家、据点和库存来自最近一次存档解析，默认每 {{ metadata.sync_interval_seconds || 120 }} 秒更新一次。</p>
+              </n-collapse-item>
+            </n-collapse>
           </section>
         </n-gi>
       </n-grid>
 
       <section v-if="isAdmin" class="admin-tools panel">
-        <header><div><span class="section-kicker">ADMIN TOOLS</span><h3>管理工具</h3></div><span class="muted-copy">危险操作仍受管理员 JWT 保护</span></header>
+        <header><div><span class="section-kicker">更多入口</span><h3>其他管理功能</h3></div></header>
         <div class="tool-grid">
-          <n-button secondary @click="showBroadcast = true">游戏内广播</n-button>
-          <n-button secondary @click="showShutdown = true">平滑关服</n-button>
           <n-button secondary tag="a" href="/server-operations?tab=backup">服务器运维</n-button>
           <n-button secondary tag="a" href="/players?tab=whitelist">白名单</n-button>
           <n-button secondary tag="a" href="/server-operations?tab=rcon">RCON 工具</n-button>
+          <n-button secondary tag="a" href="/map">查看地图</n-button>
         </div>
       </section>
     </operations-shell>
@@ -194,11 +212,7 @@ onBeforeUnmount(() => {
       <n-input v-model:value="password" type="password" show-password-on="click" placeholder="输入 PST 管理员密码" autocomplete="current-password" @keyup.enter="handleLogin" />
       <template #footer><n-space justify="end"><n-button @click="showLogin = false">取消</n-button><n-button type="primary" :loading="loading" @click="handleLogin">登录</n-button></n-space></template>
     </n-modal>
-    <rcon-manager v-model:show="showRcon" />
-    <backup-manager v-model:show="showBackup" />
     <broadcast-composer v-model:show="showBroadcast" />
-    <shutdown-dialog v-model:show="showShutdown" />
-    <whitelist-manager v-model:show="showWhitelist" :players="players" />
   </div>
   <div v-else class="app-loading"><n-spin size="large" /></div>
 </template>

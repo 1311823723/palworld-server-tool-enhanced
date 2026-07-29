@@ -191,8 +191,7 @@ onBeforeUnmount(() => window.clearInterval(pollTimer));
 </script>
 
 <template>
-  <operations-shell title="配种农场" subtitle="查看配种帕鲁、蛋糕余量和可拾取的蛋，并通过游戏内聊天接收可靠的产蛋提醒。" :metadata="metadata" :loading="loading" @refresh="refreshAll">
-    <n-alert type="info" :bordered="false" class="section-gap">数据来自实际世界存档。默认每 120 秒检查一次，页面显示的是最近一次成功解析结果，而不是游戏内存实时遥测。</n-alert>
+  <operations-shell title="配种农场" subtitle="查看配种进度、蛋糕余量、待拾取的蛋和提醒记录。" :metadata="metadata" :loading="loading" @refresh="refreshAll">
     <n-alert v-if="metadata.is_stale" type="warning" class="section-gap">{{ t("breeding.stale") }} {{ formatDate(metadata.save_file_time || metadata.snapshot_time) }}</n-alert>
     <n-alert v-if="parserStatus.failed" type="error" class="section-gap">{{ t("breeding.lastParseFailed") }} {{ formatDate(parserStatus.failed_at) }}</n-alert>
     <n-alert v-if="!reliable" type="error" class="section-gap">{{ t("breeding.unreliable") }}</n-alert>

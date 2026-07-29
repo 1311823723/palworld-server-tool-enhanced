@@ -138,6 +138,9 @@ func (manager *Manager) BridgeStatus() BridgeStatus {
 		if !errors.Is(err, os.ErrNotExist) {
 			status.LastError = err.Error()
 		}
+		if processStatus.Running {
+			status.Message = heartbeatDiagnostic(detection.Paths, manager.process.ProcessConfig(), err)
+		}
 		return status
 	}
 	now := manager.now()
@@ -340,6 +343,7 @@ func (manager *Manager) runInstall(request InstallRequest, repair, disable bool)
 					setStage("health")
 					return manager.waitForHeartbeat(ctx, started)
 				},
+				HealthTimeout: 5 * time.Minute,
 			},
 		)
 	} else {
@@ -367,22 +371,59 @@ func (manager *Manager) runInstall(request InstallRequest, repair, disable bool)
 func (manager *Manager) waitForHeartbeat(ctx context.Context, after time.Time) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var paths InstallPaths
+	var readErr error
 	for {
-		paths, err := manager.installer.paths(manager.process.ProcessConfig())
+		var err error
+		paths, err = manager.installer.paths(manager.process.ProcessConfig())
 		if err == nil {
-			state, readErr := manager.readRuntimeState(paths)
+			var state RuntimeState
+			state, readErr = manager.readRuntimeState(paths)
 			if readErr == nil && state.HeartbeatAt.After(after) && manager.now().Sub(state.HeartbeatAt) <= heartbeatFreshFor {
 				return nil
 			}
+		} else {
+			readErr = err
 		}
 		select {
 		case <-manager.ctx.Done():
 			return errors.New("生产 Bridge 管理器已关闭")
 		case <-ctx.Done():
-			return errors.New("启动后未收到 Bridge 心跳")
+			return errors.New(heartbeatDiagnostic(paths, manager.process.ProcessConfig(), readErr))
 		case <-ticker.C:
 		}
 	}
+}
+
+func heartbeatDiagnostic(paths InstallPaths, processConfig supervisor.ProcessConfig, readErr error) string {
+	for _, argument := range processConfig.Arguments {
+		if strings.EqualFold(strings.TrimSpace(argument), "-NoMods") {
+			return "PalServer 使用了 -NoMods 启动参数，所有 Mod 均被禁用；请移除该参数后重新启动"
+		}
+	}
+	if paths.Managed == "" {
+		return "启动后未收到 Bridge 心跳"
+	}
+	if _, err := os.Stat(paths.Managed); errors.Is(err, os.ErrNotExist) {
+		return "Palworld 未部署 Bridge：未生成 ManagedMods/PSTProductionBridge/InstallManifest.json；请检查 ActiveModList 和 Info.json"
+	} else if err != nil {
+		return "无法检查 Palworld 的 Bridge 部署清单：" + err.Error()
+	}
+	runtimeScript := filepath.Join(paths.Runtime, "Scripts", "main.lua")
+	if _, err := os.Stat(runtimeScript); errors.Is(err, os.ErrNotExist) {
+		return "Palworld 已识别 Bridge，但没有把 Lua 部署到 UE4SS 运行目录；请检查 UE4SS 依赖和 InstallManifest.json"
+	} else if err != nil {
+		return "无法检查 Bridge 运行时脚本：" + err.Error()
+	}
+	if _, err := os.Stat(paths.UE4SSLog); errors.Is(err, os.ErrNotExist) {
+		return "Bridge 已部署，但 UE4SS.log 尚未生成；请确认当前 Palworld Build 使用了兼容的 UE4SS"
+	} else if err != nil {
+		return "无法检查 UE4SS.log：" + err.Error()
+	}
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+		return "Bridge 已加载但心跳文件无效：" + readErr.Error()
+	}
+	return "Bridge Lua 未产生心跳；请检查 UE4SS.log 中包含 PSTProductionBridge 的启动错误"
 }
 
 func (manager *Manager) Catalog() (RuntimeState, error) {

@@ -4,6 +4,7 @@ import { useDialog, useMessage } from "naive-ui";
 import ApiService from "@/service/api";
 import OperationsShell from "@/components/OperationsShell.vue";
 import pageStore from "@/stores/model/page";
+import { apiErrorText, translateBackendMessage } from "@/utils/apiError";
 
 const api = new ApiService();
 const message = useMessage();
@@ -36,6 +37,19 @@ const isMobile = computed(() => pageStore().getScreenWidth() < 768);
 const categoryLabels = {
   basic: "基础", game_balance: "游戏平衡", server_management: "服务器管理", performance: "性能与容量", player: "玩家", pal: "帕鲁", base_building: "据点与建筑", drop_collection: "掉落与采集", death_penalty: "死亡惩罚", guild: "公会", features: "功能", pvp: "PvP", randomization: "随机化", rest_rcon: "REST / RCON", advanced: "高级", deprecated_reserved: "弃用与保留",
 };
+const commonSettingLabels = {
+  ServerName: "服务器名称",
+  ServerDescription: "服务器介绍",
+  ServerPlayerMaxNum: "最大玩家数",
+  Difficulty: "难度",
+  ExpRate: "经验倍率",
+  PalCaptureRate: "帕鲁捕获倍率",
+  PalSpawnNumRate: "帕鲁出现数量倍率",
+  PalEggDefaultHatchingTime: "巨大蛋孵化时间",
+  WorkSpeedRate: "工作速度倍率",
+  DeathPenalty: "死亡惩罚",
+};
+const commonSettingKeys = Object.keys(commonSettingLabels);
 const categoryOptions = computed(() => Object.keys(categoryLabels).map((key) => ({ label: categoryLabels[key], value: key })));
 const changed = (definition) => definition.secret ? Boolean(secretInputs[definition.key] || clearSecrets.value.includes(definition.key)) : JSON.stringify(values[definition.key]) !== JSON.stringify(current.value.values?.[definition.key]);
 const visibleDefinitions = computed(() => schema.value.filter((definition) => {
@@ -47,6 +61,9 @@ const visibleDefinitions = computed(() => schema.value.filter((definition) => {
 }));
 const grouped = computed(() => visibleDefinitions.value.reduce((result, definition) => { (result[definition.category] ||= []).push(definition); return result; }, {}));
 const modifiedCount = computed(() => schema.value.filter(changed).length);
+const commonDefinitions = computed(() => commonSettingKeys
+  .map((key) => schema.value.find((definition) => definition.key === key))
+  .filter(Boolean));
 
 function requestBody() {
   const changes = {};
@@ -65,7 +82,8 @@ async function load() {
   const [schemaResponse, currentResponse, backupResponse] = await Promise.all([api.getWorldSettingsSchema(), api.getWorldSettings(), api.getWorldSettingsBackups()]);
   loading.value = false;
   if (schemaResponse.statusCode.value !== 200 || currentResponse.statusCode.value !== 200) {
-    message.error(currentResponse.data.value?.error || schemaResponse.data.value?.error || "世界设置读取失败"); return;
+    const failed = currentResponse.statusCode.value !== 200 ? currentResponse : schemaResponse;
+    message.error(apiErrorText(failed.data.value, "世界设置读取失败", failed.statusCode.value, failed.error?.value)); return;
   }
   schema.value = schemaResponse.data.value?.settings || [];
   schemaVersion.value = schemaResponse.data.value?.schema_version || "";
@@ -84,9 +102,9 @@ async function load() {
 async function validateChanges() {
   if (!modifiedCount.value) { message.info("没有需要应用的改动"); return; }
   validating.value = true;
-  const { data, statusCode } = await api.validateWorldSettings(requestBody());
+  const { data, statusCode, error } = await api.validateWorldSettings(requestBody());
   validating.value = false;
-  if (statusCode.value !== 200) { message.error(data.value?.error || "校验失败"); return; }
+  if (statusCode.value !== 200) { message.error(apiErrorText(data.value, "校验失败", statusCode.value, error.value)); return; }
   validation.value = data.value;
   showDiff.value = true;
 }
@@ -94,9 +112,9 @@ async function validateChanges() {
 async function applyChanges() {
   if (confirmText.value !== "应用") return;
   applying.value = true;
-  const { data, statusCode } = await api.applyWorldSettings(requestBody());
+  const { data, statusCode, error } = await api.applyWorldSettings(requestBody());
   applying.value = false;
-  if (statusCode.value !== 200) { message.error(data.value?.error || "应用失败；请查看进程状态和备份"); return; }
+  if (statusCode.value !== 200) { message.error(apiErrorText(data.value, "应用失败；请查看进程状态和备份", statusCode.value, error.value)); return; }
   message.success(`设置已应用，备份：${data.value?.backup_id}`);
   showDiff.value = false;
   await load();
@@ -112,10 +130,16 @@ function resetField(definition) {
   else values[definition.key] = current.value.values?.[definition.key] ?? definition.default;
 }
 
+function resetAll() {
+  schema.value.forEach(resetField);
+  validation.value = null;
+  confirmText.value = "";
+}
+
 async function deleteBackup(id) {
   dialog.warning({ title: "删除设置备份", content: `确定删除 ${id}？`, positiveText: "删除", negativeText: "取消", onPositiveClick: async () => {
-    const { data, statusCode } = await api.deleteWorldSettingsBackup(id);
-    if (statusCode.value !== 200) message.error(data.value?.error || "删除失败"); else { message.success("备份已删除"); await load(); }
+    const { data, statusCode, error } = await api.deleteWorldSettingsBackup(id);
+    if (statusCode.value !== 200) message.error(apiErrorText(data.value, "删除失败", statusCode.value, error.value)); else { message.success("备份已删除"); await load(); }
   }});
 }
 
@@ -128,7 +152,7 @@ function restoreBackup(id) {
 async function submitRestoreBackup() {
   if (restoreConfirmText.value !== "恢复" || applying.value) return;
   applying.value = true;
-  const { data, statusCode } = await api.restoreWorldSettingsBackup(restoreTarget.value, {
+  const { data, statusCode, error } = await api.restoreWorldSettingsBackup(restoreTarget.value, {
     shutdown_seconds: 30,
     restart_delay_seconds: 10,
     message: "正在恢复服务器设置，将在 30 秒后重启。",
@@ -136,7 +160,7 @@ async function submitRestoreBackup() {
   });
   applying.value = false;
   if (statusCode.value !== 200) {
-    message.error(data.value?.error || "恢复失败");
+    message.error(apiErrorText(data.value, "恢复失败", statusCode.value, error.value));
     return;
   }
   restoreVisible.value = false;
@@ -148,20 +172,36 @@ onMounted(load);
 </script>
 
 <template>
-  <operations-shell title="世界设置" subtitle="按分类编辑 PalWorldSettings.ini。每次应用都会先备份、保存世界并通过平滑重启生效。">
-    <n-alert type="warning" class="mb-4">仅支持由 PST 配置的 Windows 本地 PalServer。密码不会回显；留空表示保持不变，清空必须显式选择。关闭 REST API 会使 PST 的保存、关服和玩家功能不可用。</n-alert>
+  <operations-shell title="世界设置" subtitle="先调整常用选项，需要时再查看全部设置。">
+    <section v-if="current.parse_warnings?.length" class="issue-panel mb-4">
+      <h2>当前问题</h2>
+      <n-alert v-for="warning in current.parse_warnings" :key="warning" type="warning">{{ translateBackendMessage(warning) }}</n-alert>
+    </section>
+
     <n-card size="small" class="mb-4">
-      <n-descriptions :column="isMobile ? 1 : 3" size="small">
-        <n-descriptions-item label="字段表版本">{{ schemaVersion }}</n-descriptions-item>
-        <n-descriptions-item label="INI 修改时间">{{ current.modified_at || "—" }}</n-descriptions-item>
-        <n-descriptions-item label="未知字段">{{ current.unknown_key_count || 0 }}（将原样保留）</n-descriptions-item>
-        <n-descriptions-item label="配置文件" :span="isMobile ? 1 : 3"><n-ellipsis>{{ current.path || "未配置" }}</n-ellipsis></n-descriptions-item>
-      </n-descriptions>
-      <n-alert v-for="warning in current.parse_warnings || []" :key="warning" type="warning" class="mt-2">{{ warning }}</n-alert>
+      <template #header>常用设置</template>
+      <template #header-extra><n-tag v-if="modifiedCount" type="success" size="small">已修改 {{ modifiedCount }} 项</n-tag></template>
+      <n-spin :show="loading">
+        <div class="common-settings">
+          <div v-for="definition in commonDefinitions" :key="definition.key" class="common-setting" :class="{ modified: changed(definition) }">
+            <div class="common-label">
+              <strong>{{ commonSettingLabels[definition.key] }}</strong>
+              <code>{{ definition.key }}</code>
+            </div>
+            <div class="common-control">
+              <n-switch v-if="definition.type === 'boolean'" v-model:value="values[definition.key]" />
+              <n-input-number v-else-if="definition.type === 'integer' || definition.type === 'float'" v-model:value="values[definition.key]" :min="definition.minimum" :max="definition.maximum" :precision="definition.type === 'integer' ? 0 : undefined" clearable />
+              <n-select v-else-if="definition.type === 'enum'" v-model:value="values[definition.key]" :options="(definition.options || []).map(value => ({ label: value, value }))" />
+              <n-input v-else v-model:value="values[definition.key]" />
+              <n-button v-if="changed(definition)" size="tiny" text @click="resetField(definition)">撤销</n-button>
+            </div>
+          </div>
+        </div>
+      </n-spin>
     </n-card>
 
     <n-card size="small">
-      <template #header>设置字段 <n-tag type="info" size="small">已修改 {{ modifiedCount }}</n-tag></template>
+      <template #header>全部设置</template>
       <template #header-extra><n-button size="small" :loading="loading" @click="load">重新读取</n-button></template>
       <n-space class="filters mb-4">
         <n-input v-model:value="search" clearable placeholder="搜索字段或说明" style="min-width:260px" />
@@ -195,7 +235,17 @@ onMounted(load);
         </n-collapse>
       </n-spin>
       <n-empty v-if="!loading && !visibleDefinitions.length" description="没有符合筛选条件的字段" />
-      <n-space justify="end" class="mt-4"><n-button :disabled="!modifiedCount" :loading="validating" type="primary" @click="validateChanges">校验并查看差异</n-button></n-space>
+      <n-collapse class="settings-help mt-4">
+        <n-collapse-item title="了解设置文件与安全规则" name="settings-help">
+          <n-descriptions :column="isMobile ? 1 : 3" size="small">
+            <n-descriptions-item label="字段表版本">{{ schemaVersion }}</n-descriptions-item>
+            <n-descriptions-item label="INI 修改时间">{{ current.modified_at || "—" }}</n-descriptions-item>
+            <n-descriptions-item label="未知字段">{{ current.unknown_key_count || 0 }}（原样保留）</n-descriptions-item>
+            <n-descriptions-item label="配置文件" :span="isMobile ? 1 : 3"><n-ellipsis>{{ current.path || "未配置" }}</n-ellipsis></n-descriptions-item>
+          </n-descriptions>
+          <p class="help-copy">密码不会回显；留空表示保持不变。关闭 REST API 后，保存世界、平滑关服和玩家查询等功能将不可用。</p>
+        </n-collapse-item>
+      </n-collapse>
     </n-card>
 
     <n-card title="设置备份" size="small" class="mt-4">
@@ -203,12 +253,19 @@ onMounted(load);
       <n-empty v-if="!backups.length" description="尚无 PST 世界设置备份" />
     </n-card>
 
+    <div v-if="modifiedCount" class="settings-action-bar">
+      <strong>已修改 {{ modifiedCount }} 项</strong>
+      <span>尚未写入服务器</span>
+      <n-button secondary :disabled="validating || applying" @click="resetAll">撤销全部</n-button>
+      <n-button type="primary" :loading="validating" :disabled="applying" @click="validateChanges">校验并查看差异</n-button>
+    </div>
+
     <n-modal v-model:show="showDiff" preset="card" title="确认世界设置变更" style="width:min(760px,94vw)">
       <n-alert v-for="warning in validation?.warnings || []" :key="warning" type="warning" class="mb-2">{{ warning }}</n-alert>
       <n-data-table :columns="[{title:'字段',key:'key'},{title:'原值',key:'before',render:r=>r.secret?'（敏感值已隐藏）':JSON.stringify(r.before)},{title:'新值',key:'after',render:r=>r.secret?'（敏感值已隐藏）':JSON.stringify(r.after)}]" :data="validation?.differences || []" :bordered="false" />
       <n-grid :cols="isMobile ? 1 : 3" :x-gap="12" class="mt-4"><n-gi><n-form-item label="关服倒计时"><n-input-number v-model:value="shutdownSeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="重启等待"><n-input-number v-model:value="restartDelaySeconds" :min="0" /></n-form-item></n-gi><n-gi><n-form-item label="输入“应用”确认"><n-input v-model:value="confirmText" placeholder="应用" /></n-form-item></n-gi></n-grid>
       <n-form-item label="广播消息"><n-input v-model:value="restartMessage" /></n-form-item>
-      <n-alert type="info">提交后将先保存世界并平滑关服，确认进程退出后才备份和写入；不会同时运行两个 PalServer。</n-alert>
+      <n-collapse><n-collapse-item title="了解应用过程" name="apply-help"><p class="help-copy">提交后会先保存世界并平滑关服，确认进程退出后再备份和写入设置。</p></n-collapse-item></n-collapse>
       <template #footer><n-space justify="end"><n-button @click="showDiff=false">取消</n-button><n-button type="error" :disabled="confirmText !== '应用'" :loading="applying" @click="applyChanges">应用并重启</n-button></n-space></template>
     </n-modal>
 
@@ -230,6 +287,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.settings-grid .modified{box-shadow:inset 3px 0 #18a058}.settings-grid .dangerous{border-color:rgba(208,48,80,.38)}.description{min-height:40px;margin:0 0 12px;opacity:.7}.source{display:block;margin-top:12px;opacity:.48}.mb-2{margin-bottom:8px}.mb-4{margin-bottom:16px}.mt-2{margin-top:8px}.mt-4{margin-top:16px}
-@media(max-width:900px){.settings-grid{grid-template-columns:1fr}}@media(max-width:767px){.filters{display:grid!important}.filters>*{width:100%!important}}
+.issue-panel{display:grid;gap:8px}.issue-panel h2{margin:0;font-size:16px}.common-settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;border:1px solid var(--ops-line);background:var(--ops-line)}.common-setting{display:grid;grid-template-columns:minmax(140px,.8fr) minmax(180px,1.2fr);align-items:center;gap:16px;min-height:72px;padding:12px 14px;background:var(--ops-panel)}.common-setting.modified{box-shadow:inset 3px 0 #18a058}.common-label strong,.common-label code{display:block}.common-label strong{font-size:14px}.common-label code{margin-top:4px;color:var(--ops-muted);font-size:10px}.common-control{display:flex;align-items:center;gap:8px}.common-control>:first-child{flex:1}.settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.settings-grid .modified{box-shadow:inset 3px 0 #18a058}.settings-grid .dangerous{border-color:rgba(208,48,80,.38)}.description{min-height:40px;margin:0 0 12px;opacity:.7}.source{display:block;margin-top:12px;opacity:.48}.settings-help{border-top:1px solid var(--ops-line)}.help-copy{margin:12px 0 0;color:var(--ops-muted);font-size:13px;line-height:1.65}.settings-action-bar{position:fixed;z-index:35;right:clamp(20px,4vw,52px);bottom:16px;left:calc(228px + clamp(20px,4vw,52px));display:flex;align-items:center;gap:10px;max-width:1320px;margin:auto;padding:11px 14px;border:1px solid rgba(23,141,121,.28);border-radius:12px;background:rgba(255,255,255,.96);box-shadow:0 14px 38px rgba(31,57,48,.18);backdrop-filter:blur(16px)}.settings-action-bar strong{font-size:14px}.settings-action-bar span{flex:1;color:var(--ops-muted);font-size:12px}.mb-2{margin-bottom:8px}.mb-4{margin-bottom:16px}.mt-2{margin-top:8px}.mt-4{margin-top:16px}
+@media(max-width:1000px){.common-settings,.settings-grid{grid-template-columns:1fr}}@media(max-width:767px){.filters{display:grid!important}.filters>*{width:100%!important}.common-setting{grid-template-columns:1fr;gap:9px}.settings-action-bar{right:12px;bottom:66px;left:12px;display:grid;grid-template-columns:1fr 1fr}.settings-action-bar strong,.settings-action-bar span{grid-column:1/-1}.settings-action-bar span{margin-top:-7px}}
 </style>

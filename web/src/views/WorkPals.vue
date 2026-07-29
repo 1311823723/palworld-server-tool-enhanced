@@ -74,7 +74,7 @@ onMounted(loadBases);
 </script>
 
 <template>
-  <operations-shell title="工作帕鲁" subtitle="按据点查看帕鲁健康、当前工作和饲料储备。数据来自存档解析，不会修改游戏内容。" :metadata="metadata" :loading="loading || detailLoading" @refresh="loadBases">
+  <operations-shell title="工作帕鲁" subtitle="按据点查看工作状态、饱食度、SAN 和饲料储备。" :metadata="metadata" :loading="loading || detailLoading" @refresh="loadBases">
     <n-alert v-if="metadata.is_stale" type="warning" class="mb-4">快照可能已过期，显示时间：{{ metadata.save_file_time || metadata.snapshot_time }}</n-alert>
     <n-alert v-for="warning in metadata.warnings || []" :key="warning" type="info" class="mb-2">{{ warning }}</n-alert>
     <n-grid :cols="isMobile ? 1 : 4" :x-gap="16" :y-gap="16">

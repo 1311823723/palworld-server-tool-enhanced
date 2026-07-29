@@ -4,8 +4,12 @@ import dayjs from "dayjs";
 import { useMessage } from "naive-ui";
 import { useI18n } from "vue-i18n";
 import ApiService from "@/service/api";
+import { apiErrorText, translateBackendMessage } from "@/utils/apiError";
 
-defineProps({ isAdmin: { type: Boolean, default: true } });
+const props = defineProps({
+  isAdmin: { type: Boolean, default: true },
+  compact: { type: Boolean, default: false },
+});
 
 const { t } = useI18n();
 const message = useMessage();
@@ -81,15 +85,20 @@ const uptime = computed(() => {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
+  return days > 0 ? `${days} 天 ${hours} 小时` : `${hours} 小时 ${minutes} 分钟`;
 });
 const formatTime = (value) =>
   value ? dayjs(value).format("YYYY-MM-DD HH:mm:ss") : "—";
 const formatServerTime = (value) =>
   value ? String(value).replace("T", " ").slice(0, 19) : "—";
 
-const showError = (data, fallback) =>
-  message.error(data?.error || fallback || t("serverProcess.actionFailed"));
+const showError = (data, fallback, statusCode, requestError) =>
+  message.error(apiErrorText(
+    data,
+    fallback || t("serverProcess.actionFailed"),
+    statusCode,
+    requestError,
+  ));
 
 const schedulePoll = () => {
   if (disposed) return;
@@ -102,13 +111,13 @@ const schedulePoll = () => {
 
 const loadStatus = async (notify = false) => {
   loading.value = true;
-  const { data, statusCode } = await api.getServerProcess();
+  const { data, statusCode, error } = await api.getServerProcess();
   loading.value = false;
   if (statusCode.value === 200) {
     status.value = data.value;
     if (notify) message.success(t("serverProcess.refreshed"));
   } else {
-    showError(data.value, t("serverProcess.loadFailed"));
+    showError(data.value, t("serverProcess.loadFailed"), statusCode.value, error.value);
   }
   schedulePoll();
 };
@@ -116,10 +125,10 @@ const loadStatus = async (notify = false) => {
 const runAction = async (name, request, successKey) => {
   if (action.value) return false;
   action.value = name;
-  const { data, statusCode } = await request();
+  const { data, statusCode, error } = await request();
   action.value = "";
   if (statusCode.value < 200 || statusCode.value >= 300) {
-    showError(data.value);
+    showError(data.value, undefined, statusCode.value, error.value);
     return false;
   }
   if (data.value?.state) status.value = data.value;
@@ -196,6 +205,7 @@ onBeforeUnmount(() => {
       </n-space>
     </template>
 
+    <div v-if="status.crash_loop_detected || status.external_process || status.last_error || status.last_scheduled_restart_error" class="issue-heading">当前问题</div>
     <n-alert
       v-if="status.crash_loop_detected"
       type="error"
@@ -213,64 +223,8 @@ onBeforeUnmount(() => {
       {{ $t("serverProcess.externalWarning") }}
     </n-alert>
 
-    <n-descriptions
-      responsive="screen"
-      :column="3"
-      label-placement="top"
-      bordered
-    >
-      <n-descriptions-item label="PID">{{
-        status.pid || "—"
-      }}</n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.uptime')">{{
-        uptime
-      }}</n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.watchdog')">
-        <n-tag
-          size="small"
-          :type="status.watchdog_enabled ? 'success' : 'default'"
-        >
-          {{
-            status.watchdog_enabled
-              ? $t("serverProcess.enabled")
-              : $t("serverProcess.disabled")
-          }}
-        </n-tag>
-      </n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.lastExit')">{{
-        formatTime(status.last_exit_at)
-      }}</n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.exitCode')">{{
-        status.last_exit_code ?? "—"
-      }}</n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.restartCount')"
-        >{{ status.restart_count || 0 }} /
-        {{ status.recent_crash_count || 0 }}</n-descriptions-item
-      >
-      <n-descriptions-item :label="$t('serverProcess.scheduledRestart')">
-        <n-tag
-          size="small"
-          :type="status.scheduled_restart_enabled ? 'success' : 'default'"
-        >
-          {{
-            status.scheduled_restart_enabled
-              ? scheduledRestartLabel
-              : $t("serverProcess.disabled")
-          }}
-        </n-tag>
-      </n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.nextScheduledRestart')">
-        {{ formatServerTime(status.next_scheduled_restart_at) }}
-      </n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.scheduleTimezone')">
-        {{ status.scheduled_restart_timezone || "—" }}
-      </n-descriptions-item>
-      <n-descriptions-item :label="$t('serverProcess.lastScheduledRestart')">
-        {{ formatServerTime(status.last_scheduled_restart_at) }}
-      </n-descriptions-item>
-    </n-descriptions>
     <n-text v-if="status.last_error" type="error" class="error-text">
-      {{ $t("serverProcess.lastError") }}: {{ status.last_error }}
+      {{ $t("serverProcess.lastError") }}：{{ translateBackendMessage(status.last_error) }}
     </n-text>
     <n-text
       v-if="status.last_scheduled_restart_error"
@@ -278,7 +232,7 @@ onBeforeUnmount(() => {
       class="error-text"
     >
       {{ $t("serverProcess.lastScheduledRestartError") }}:
-      {{ status.last_scheduled_restart_error }}
+      {{ translateBackendMessage(status.last_scheduled_restart_error) }}
     </n-text>
 
     <n-flex v-if="isAdmin" class="mt-4" :size="10">
@@ -327,7 +281,36 @@ onBeforeUnmount(() => {
             : $t("serverProcess.enableWatchdog")
         }}
       </n-button>
+      <slot name="actions" />
     </n-flex>
+
+    <n-collapse
+      class="process-details"
+      :default-expanded-names="props.compact ? [] : ['details']"
+    >
+      <n-collapse-item title="详细状态" name="details">
+        <n-descriptions responsive="screen" :column="3" label-placement="top" bordered>
+          <n-descriptions-item label="PID">{{ status.pid || "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.uptime')">{{ uptime }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.watchdog')">
+            <n-tag size="small" :type="status.watchdog_enabled ? 'success' : 'default'">
+              {{ status.watchdog_enabled ? $t("serverProcess.enabled") : $t("serverProcess.disabled") }}
+            </n-tag>
+          </n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.lastExit')">{{ formatTime(status.last_exit_at) }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.exitCode')">{{ status.last_exit_code ?? "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.restartCount')">{{ status.restart_count || 0 }} / {{ status.recent_crash_count || 0 }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.scheduledRestart')">
+            <n-tag size="small" :type="status.scheduled_restart_enabled ? 'success' : 'default'">
+              {{ status.scheduled_restart_enabled ? scheduledRestartLabel : $t("serverProcess.disabled") }}
+            </n-tag>
+          </n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.nextScheduledRestart')">{{ formatServerTime(status.next_scheduled_restart_at) }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.scheduleTimezone')">{{ status.scheduled_restart_timezone || "—" }}</n-descriptions-item>
+          <n-descriptions-item :label="$t('serverProcess.lastScheduledRestart')">{{ formatServerTime(status.last_scheduled_restart_at) }}</n-descriptions-item>
+        </n-descriptions>
+      </n-collapse-item>
+    </n-collapse>
   </n-card>
 
   <n-modal
@@ -410,5 +393,14 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 12px;
   overflow-wrap: anywhere;
+}
+.issue-heading {
+  margin-bottom: 8px;
+  color: var(--ops-muted, #6c7b74);
+  font-size: 12px;
+  font-weight: 650;
+}
+.process-details {
+  margin-top: 14px;
 }
 </style>
