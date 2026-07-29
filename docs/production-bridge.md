@@ -21,16 +21,21 @@ PST 从自身目录读取只读安装源：
 <PST 目录>\extras\PSTProductionBridge
 ```
 
-根据 `PalServer.exe` 自动推导以下目录：
+PST 会先读取 `<PalServer>\Mods\PalModSettings.ini`。如果其中配置了
+`WorkshopRootDir`，Bridge 会安装和检测在该目录下；没有配置时才使用
+默认的 `Mods\Workshop`：
 
 ```text
-Bridge 目标：<PalServer>\Mods\Workshop\PSTProductionBridge
+Bridge 目标：<WorkshopRootDir>\PSTProductionBridge
+默认目标：   <PalServer>\Mods\Workshop\PSTProductionBridge
 激活配置：   <PalServer>\Mods\PalModSettings.ini
 UE4SS 预期： <PalServer>\Mods\NativeMods\UE4SS
 本机 IPC：   <PalServer>\Pal\Saved\PSTProductionBridge
 ```
 
 浏览器接口不接受下载地址、压缩包、安装源、目标路径或任意命令。
+为避免配置文件被用于写入任意位置，`WorkshopRootDir` 必须位于当前
+PalServer 的 `Mods` 目录内。
 
 ## 一键安装流程
 
@@ -47,6 +52,10 @@ UE4SS 预期： <PalServer>\Mods\NativeMods\UE4SS
 如果安装失败，PST 会恢复原 Bridge 目录和原 `PalModSettings.ini`。已停止服务器安装后不会被意外拉起。
 
 “修复”用于恢复与 Release 清单不一致的 Bridge 文件；PST 不会静默覆盖管理员修改过的文件。“安全禁用”只移除激活项，不自动删除 Bridge 文件。
+
+如果自动安装失败后进行了人工复制或配置修正，点击“重新检测”会重新读取
+`PalModSettings.ini`、Bridge 文件清单和 `state.json` 心跳，并清除上一轮维护
+流程留下的错误提示。Bridge 文件已就位但没有心跳时，仍需重启 PalServer。
 
 ## 生产订单
 

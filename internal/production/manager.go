@@ -178,6 +178,17 @@ func (manager *Manager) BridgeStatus() BridgeStatus {
 	return status
 }
 
+// RecheckBridge discards a previous maintenance failure and rebuilds the
+// status from the current INI, installed files and runtime heartbeat.
+func (manager *Manager) RecheckBridge() BridgeStatus {
+	manager.mu.Lock()
+	if !manager.installing {
+		manager.lastError = ""
+	}
+	manager.mu.Unlock()
+	return manager.BridgeStatus()
+}
+
 func installStageMessage(stage string) string {
 	switch stage {
 	case "save":

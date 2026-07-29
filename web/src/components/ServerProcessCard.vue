@@ -19,13 +19,11 @@ const restartForm = reactive({
   shutdown_seconds: 30,
   restart_delay_seconds: 10,
   message: "服务器将在 30 秒后重启，请提前回到安全位置。",
-  confirmation: "",
 });
 const stopForm = reactive({
   shutdown_seconds: 30,
   message: "服务器将在 30 秒后关闭，请提前回到安全位置。",
   keep_stopped: true,
-  confirmation: "",
 });
 let pollTimer;
 let disposed = false;
@@ -156,7 +154,6 @@ const submitRestart = async () => {
   );
   if (succeeded) {
     restartVisible.value = false;
-    restartForm.confirmation = "";
   }
 };
 
@@ -173,7 +170,6 @@ const submitStop = async () => {
   );
   if (succeeded) {
     stopVisible.value = false;
-    stopForm.confirmation = "";
   }
 };
 
@@ -340,8 +336,9 @@ onBeforeUnmount(() => {
     :title="$t('serverProcess.restartTitle')"
     :positive-text="$t('serverProcess.restart')"
     :negative-text="$t('button.cancel')"
+    :mask-closable="false"
     :positive-button-props="{
-      disabled: restartForm.confirmation !== '重启',
+      disabled: Boolean(action && action !== 'restart'),
       loading: action === 'restart',
     }"
     @positive-click="submitRestart"
@@ -364,11 +361,9 @@ onBeforeUnmount(() => {
       <n-form-item :label="$t('serverProcess.message')"
         ><n-input v-model:value="restartForm.message" type="textarea"
       /></n-form-item>
-      <n-form-item :label="$t('serverProcess.confirmRestart')"
-        ><n-input
-          v-model:value="restartForm.confirmation"
-          placeholder="重启"
-      /></n-form-item>
+      <n-alert type="warning" :bordered="false">
+        确认后将先广播并保存世界，等 PalServer 完全退出后再启动。
+      </n-alert>
     </n-form>
   </n-modal>
 
@@ -378,8 +373,9 @@ onBeforeUnmount(() => {
     :title="$t('serverProcess.stopTitle')"
     :positive-text="$t('serverProcess.stop')"
     :negative-text="$t('button.cancel')"
+    :mask-closable="false"
     :positive-button-props="{
-      disabled: stopForm.confirmation !== '停服',
+      disabled: Boolean(action && action !== 'stop'),
       loading: action === 'stop',
       type: 'error',
     }"
@@ -399,9 +395,9 @@ onBeforeUnmount(() => {
       <n-form-item :label="$t('serverProcess.keepStopped')"
         ><n-switch v-model:value="stopForm.keep_stopped"
       /></n-form-item>
-      <n-form-item :label="$t('serverProcess.confirmStop')"
-        ><n-input v-model:value="stopForm.confirmation" placeholder="停服"
-      /></n-form-item>
+      <n-alert type="error" :bordered="false">
+        确认后将保存世界并平滑关服。开启“关闭后保持停止”时，守护程序不会自动拉起服务器。
+      </n-alert>
     </n-form>
   </n-modal>
 </template>

@@ -10,6 +10,7 @@ test("production orders route and API methods remain administrator-only surfaces
   assert.match(router, /path:\s*"\/production-orders"[\s\S]*requiresAdmin:\s*true/);
   for (const endpoint of [
     "/api/production/bridge",
+    "/api/production/bridge/recheck",
     "/api/production/catalog",
     "/api/production/preview",
     "/api/production/orders",
@@ -17,6 +18,7 @@ test("production orders route and API methods remain administrator-only surfaces
     assert.ok(api.includes(endpoint), `missing ${endpoint}`);
   }
   assert.match(view, /输入 INSTALL/);
+  assert.match(view, /recheckProductionBridge/);
   assert.match(view, /max-width:\s*640px/);
   assert.match(view, /cancellation_requested/);
 });

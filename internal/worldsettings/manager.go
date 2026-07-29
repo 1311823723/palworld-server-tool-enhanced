@@ -85,6 +85,7 @@ type ChangeRequest struct {
 	Changes             map[string]any    `json:"changes"`
 	Secrets             map[string]string `json:"secrets"`
 	ClearSecrets        []string          `json:"clear_secrets"`
+	Confirmation        string            `json:"confirmation,omitempty"`
 	ShutdownSeconds     int               `json:"shutdown_seconds"`
 	RestartDelaySeconds int               `json:"restart_delay_seconds"`
 	Message             string            `json:"message"`

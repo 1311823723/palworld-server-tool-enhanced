@@ -268,6 +268,75 @@ func TestStoppedInstallBacksUpWithoutStartingServer(t *testing.T) {
 	}
 }
 
+func TestRecheckDetectsManualBridgeAndClearsPreviousFailure(t *testing.T) {
+	installer, processConfig, paths := prepareInstallerTest(t, true)
+	configuredRoot := filepath.Join(paths.PalServerRoot, "Mods", "CustomWorkshop")
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Settings, []byte(
+		"WorkshopRootDir="+configuredRoot+"\r\n"+
+			"bGlobalEnableMod=true\r\n"+
+			"ActiveModList="+BridgeName+"\r\n",
+	), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := installer.paths(processConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := readAndVerifyManifest(resolved.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyManifestFiles(resolved.Source, resolved.Target, manifest); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resolved.IPC, 0700); err != nil {
+		t.Fatal(err)
+	}
+	runtimeState := RuntimeState{
+		InstanceID:      "manual-instance",
+		BridgeVersion:   BridgeVersion,
+		ProtocolVersion: BridgeProtocolVersion,
+		HeartbeatAt:     time.Now().UTC(),
+		Compatible:      true,
+		Capabilities:    RuntimeCapabilities{Catalog: true, Orders: true},
+	}
+	stateData, err := json.Marshal(runtimeState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resolved.IPC, "state.json"), stateData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &fakeProductionSupervisor{
+		status: supervisor.Status{Running: true, State: supervisor.StateRunning},
+		config: processConfig,
+	}
+	manager, err := NewManager(openProductionTestDB(t), fake, func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	manager.SetInstallerForTesting(installer)
+	manager.mu.Lock()
+	manager.lastError = "上一轮安装失败"
+	manager.mu.Unlock()
+
+	status := manager.RecheckBridge()
+	if status.State != BridgeHealthy {
+		t.Fatalf("recheck state = %s, want %s (%s)", status.State, BridgeHealthy, status.Message)
+	}
+	if status.LastError != "" {
+		t.Fatalf("recheck retained stale error: %q", status.LastError)
+	}
+	if status.ManualInstall == nil || status.ManualInstall.TargetDirectory != resolved.Target {
+		t.Fatalf("recheck target = %#v, want %q", status.ManualInstall, resolved.Target)
+	}
+}
+
 func TestInstallRejectsExternalProcessAndInvalidConfirmation(t *testing.T) {
 	installer, processConfig, _ := prepareInstallerTest(t, true)
 	fake := &fakeProductionSupervisor{

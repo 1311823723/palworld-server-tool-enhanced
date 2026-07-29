@@ -2,6 +2,7 @@ package production
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -273,6 +274,87 @@ func TestInstallPathsAlwaysDeriveFromExecutable(t *testing.T) {
 	}
 	if paths.PalServerRoot != expected.PalServerRoot || paths.Target != expected.Target {
 		t.Fatalf("working directory redirected installation: %#v, want root %s", paths, expected.PalServerRoot)
+	}
+}
+
+func TestInstallUsesWorkshopRootDirFromPalModSettings(t *testing.T) {
+	installer, processConfig, defaultPaths := prepareInstallerTest(t, true)
+	configuredRoot := filepath.Join(defaultPaths.PalServerRoot, "Mods", "1623730")
+	if err := os.MkdirAll(filepath.Dir(defaultPaths.Settings), 0755); err != nil {
+		t.Fatal(err)
+	}
+	settings := strings.Join([]string{
+		"[PalModSettings]",
+		"WorkshopRootDir=\"" + configuredRoot + "\"",
+		"bGlobalEnableMod=true",
+		"ActiveModList=ExistingMod",
+		"",
+	}, "\r\n")
+	if err := os.WriteFile(defaultPaths.Settings, []byte(settings), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths, err := installer.paths(processConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTarget := filepath.Join(configuredRoot, BridgeName)
+	if paths.Target != wantTarget {
+		t.Fatalf("target = %q, want %q", paths.Target, wantTarget)
+	}
+
+	transaction, err := installer.Install(processConfig, false)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(wantTarget, "Info.json")); err != nil {
+		t.Fatalf("Bridge was not installed under WorkshopRootDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(defaultPaths.Target, "Info.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("default Workshop directory should remain unused, err=%v", err)
+	}
+	updated, err := os.ReadFile(defaultPaths.Settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updated), "WorkshopRootDir=\""+configuredRoot+"\"") {
+		t.Fatalf("installer changed WorkshopRootDir:\n%s", updated)
+	}
+}
+
+func TestWorkshopRootDirSupportsRelativeModsPath(t *testing.T) {
+	installer, processConfig, paths := prepareInstallerTest(t, true)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Settings, []byte("WorkshopRootDir=Mods/CustomWorkshop\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := installer.paths(processConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(paths.PalServerRoot, "Mods", "CustomWorkshop", BridgeName)
+	if resolved.Target != want {
+		t.Fatalf("target = %q, want %q", resolved.Target, want)
+	}
+}
+
+func TestWorkshopRootDirCannotEscapePalServerMods(t *testing.T) {
+	installer, processConfig, paths := prepareInstallerTest(t, true)
+	if err := os.MkdirAll(filepath.Dir(paths.Settings), 0755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(filepath.Dir(paths.PalServerRoot), "outside")
+	if err := os.WriteFile(paths.Settings, []byte("WorkshopRootDir="+outside+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	detection := installer.Detect(processConfig)
+	if detection.State != BridgeError || !strings.Contains(detection.Message, "必须位于") {
+		t.Fatalf("detection = %#v, want safe path error", detection)
 	}
 }
 

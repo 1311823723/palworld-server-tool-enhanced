@@ -11,11 +11,8 @@ const message = useMessage();
 const api = new ApiService();
 const seconds = ref(60);
 const shutdownMessage = ref("");
-const confirmation = ref("");
 const submitting = ref(false);
-const canSubmit = computed(
-  () => shutdownMessage.value.trim() && confirmation.value === "停服"
-);
+const canSubmit = computed(() => Boolean(shutdownMessage.value.trim()));
 
 const close = () => emit("update:show", false);
 const submit = async () => {
@@ -43,7 +40,6 @@ watch(
     if (show) {
       seconds.value = 60;
       shutdownMessage.value = t("danger.defaultMessage", { seconds: 60 });
-      confirmation.value = "";
     }
   }
 );
@@ -74,13 +70,6 @@ watch(
         </n-form-item>
         <n-form-item :label="$t('danger.broadcastMessage')">
           <n-input v-model:value="shutdownMessage" type="textarea" />
-        </n-form-item>
-        <n-form-item :label="$t('danger.confirmLabel')">
-          <n-input
-            v-model:value="confirmation"
-            :placeholder="$t('danger.confirmPlaceholder')"
-            autocomplete="off"
-          />
         </n-form-item>
       </n-form>
     </n-space>
