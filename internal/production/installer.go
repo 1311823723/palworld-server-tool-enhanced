@@ -188,6 +188,18 @@ func (installer *Installer) Detect(processConfig supervisor.ProcessConfig) Insta
 	}
 	detection.FilesIntact = true
 	detection.Automatic = true
+	activationCount, err := modActivationCount(paths.Settings)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		detection.State = BridgeError
+		detection.Message = "读取 PalModSettings.ini 失败：" + err.Error()
+		detection.BlockReason = detection.Message
+		return detection
+	}
+	if activationCount > 1 {
+		detection.State = BridgeModified
+		detection.Message = "PalModSettings.ini 中存在重复的 PSTProductionBridge 激活项，请使用修复功能清理"
+		return detection
+	}
 	if installedManifest.Version != manifest.Version {
 		detection.State = BridgeUpgradeAvailable
 		detection.Message = fmt.Sprintf("Bridge 可升级：%s → %s", installedManifest.Version, manifest.Version)
@@ -690,59 +702,107 @@ func modEnabled(path string) bool {
 	return global && active
 }
 
-func enableMod(content string, enabled bool) string {
-	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-	foundGlobal := false
-	foundList := false
-	for index, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#") {
+func modActivationCount(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return bridgeActivationCount(string(data)), nil
+}
+
+func bridgeActivationCount(content string) int {
+	count := 0
+	scanner := bufio.NewScanner(strings.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, ";") || strings.HasPrefix(line, "#") {
 			continue
 		}
-		key, value, ok := strings.Cut(trimmed, "=")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(key), "ActiveModList") {
+			continue
+		}
+		for _, item := range splitModList(value) {
+			if strings.EqualFold(item, BridgeName) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func enableMod(content string, enabled bool) string {
+	newline := "\r\n"
+	if content != "" && !strings.Contains(content, "\r\n") {
+		newline = "\n"
+	}
+	normalized := strings.ReplaceAll(content, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Split(normalized, "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	} else if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	resultLines := make([]string, 0, len(lines)+2)
+	foundGlobal := false
+	lastListPosition := -1
+	listIndent := ""
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#") {
+			resultLines = append(resultLines, line)
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
 		if !ok {
+			resultLines = append(resultLines, line)
 			continue
 		}
 		switch {
 		case strings.EqualFold(strings.TrimSpace(key), "bGlobalEnableMod"):
 			foundGlobal = true
 			if enabled {
-				lines[index] = preserveIndent(line) + "bGlobalEnableMod=true"
+				line = preserveIndent(line) + "bGlobalEnableMod=true"
 			}
+			resultLines = append(resultLines, line)
 		case strings.EqualFold(strings.TrimSpace(key), "ActiveModList"):
-			foundList = true
+			listIndent = preserveIndent(line)
 			items := splitModList(value)
-			filtered := make([]string, 0, len(items)+1)
-			present := false
+			filtered := make([]string, 0, len(items))
 			for _, item := range items {
 				if strings.EqualFold(item, BridgeName) {
-					present = true
-					if !enabled {
-						continue
-					}
-					item = BridgeName
+					continue
 				}
 				filtered = append(filtered, item)
 			}
-			if enabled && !present {
-				filtered = append(filtered, BridgeName)
+			if len(filtered) == len(items) {
+				resultLines = append(resultLines, line)
+			} else if len(filtered) > 0 {
+				resultLines = append(resultLines, key+"="+strings.Join(filtered, ","))
 			}
-			lines[index] = preserveIndent(line) + "ActiveModList=" + strings.Join(filtered, ",")
+			lastListPosition = len(resultLines)
+		default:
+			resultLines = append(resultLines, line)
 		}
 	}
 	if enabled && !foundGlobal {
-		lines = append(lines, "bGlobalEnableMod=true")
+		resultLines = append(resultLines, "bGlobalEnableMod=true")
 	}
-	if !foundList {
-		value := ""
-		if enabled {
-			value = BridgeName
+	if enabled {
+		bridgeLine := listIndent + "ActiveModList=" + BridgeName
+		if lastListPosition < 0 || lastListPosition >= len(resultLines) {
+			resultLines = append(resultLines, bridgeLine)
+		} else {
+			resultLines = append(resultLines, "")
+			copy(resultLines[lastListPosition+1:], resultLines[lastListPosition:])
+			resultLines[lastListPosition] = bridgeLine
 		}
-		lines = append(lines, "ActiveModList="+value)
 	}
-	result := strings.Join(lines, "\r\n")
-	if !strings.HasSuffix(result, "\r\n") {
-		result += "\r\n"
+	result := strings.Join(resultLines, newline)
+	if !strings.HasSuffix(result, newline) {
+		result += newline
 	}
 	return result
 }
