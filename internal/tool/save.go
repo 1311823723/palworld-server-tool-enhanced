@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/zaigie/palworld-server-tool/internal/auth"
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
@@ -104,6 +105,43 @@ func Backup() (string, error) {
 		return "", fmt.Errorf("failed to create backup zip: %s", err)
 	}
 	return filepath.Base(backupZipFile), nil
+}
+
+// BackupRecord creates a backup and persists its metadata. It is shared by
+// manual backups, server updates and maintenance transactions so every backup
+// has the same failure semantics and audit-friendly source field.
+func BackupRecord(sourceName string) (database.Backup, error) {
+	backup := database.Backup{
+		BackupId: uuid.NewString(),
+		SaveTime: time.Now().UTC(),
+		Source:   sourceName,
+		Status:   "failed",
+	}
+	path, err := Backup()
+	if err != nil {
+		backup.Error = err.Error()
+		if recordErr := service.AddBackup(database.GetDB(), backup); recordErr != nil {
+			return backup, fmt.Errorf("%v; 保存失败记录失败: %w", err, recordErr)
+		}
+		return backup, err
+	}
+	backupDir, err := GetBackupDir()
+	if err != nil {
+		backup.Path = path
+		backup.Error = err.Error()
+		_ = service.AddBackup(database.GetDB(), backup)
+		return backup, err
+	}
+	if info, statErr := os.Stat(filepath.Join(backupDir, path)); statErr == nil {
+		backup.Size = info.Size()
+	}
+	backup.Path = path
+	backup.Status = "success"
+	if err := service.AddBackup(database.GetDB(), backup); err != nil {
+		_ = os.Remove(filepath.Join(backupDir, path))
+		return database.Backup{}, err
+	}
+	return backup, nil
 }
 
 func GetBackupDir() (string, error) {

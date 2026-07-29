@@ -439,6 +439,51 @@ func TestSettingsTransactionStartFailureRollsBackAndStartsOldSettingsOnce(t *tes
 	}
 }
 
+func TestSettingsTransactionRunsBackupHookBetweenSaveAndShutdown(t *testing.T) {
+	first := newFakeProcess(563)
+	second := newFakeProcess(564)
+	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
+		if attempt == 1 {
+			return first, nil
+		}
+		return second, nil
+	}}
+	controller := &fakeController{}
+	s := New(testConfig(false), launcher, &fakeDetector{}, controller)
+	defer s.Close()
+	if _, err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	hookRan := make(chan struct{}, 1)
+	result := make(chan error, 1)
+	go func() {
+		_, err := s.ApplyAndRestart(RestartOptions{}, TransactionHooks{
+			BeforeShutdown: func() error {
+				events := controller.Events()
+				if len(events) != 1 || events[0] != "save" {
+					return errors.New("backup hook did not run immediately after save")
+				}
+				hookRan <- struct{}{}
+				return nil
+			},
+		})
+		result <- err
+	}()
+	select {
+	case <-hookRan:
+	case <-time.After(time.Second):
+		t.Fatal("backup hook did not run")
+	}
+	waitFor(t, func() bool {
+		events := controller.Events()
+		return len(events) == 2 && events[1] == "shutdown"
+	})
+	first.Exit(0, nil)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSettingsTransactionWriteFailureRestartsPreviousSettings(t *testing.T) {
 	first := newFakeProcess(565)
 	restored := newFakeProcess(566)

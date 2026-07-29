@@ -130,9 +130,10 @@ type StopOptions struct {
 }
 
 type TransactionHooks struct {
-	AfterExit   func() error
-	Rollback    func() error
-	HealthCheck func(context.Context) error
+	BeforeShutdown func() error
+	AfterExit      func() error
+	Rollback       func() error
+	HealthCheck    func(context.Context) error
 }
 
 type Status struct {
@@ -257,6 +258,52 @@ func (s *ServerSupervisor) UpdateConfig(value config.ServerProcessConfig) {
 	}
 	s.mu.Unlock()
 	s.notifyScheduleChanged()
+}
+
+// ProcessConfig returns a detached copy of the current process configuration.
+// It is intentionally limited to process paths and non-secret launch settings.
+func (s *ServerSupervisor) ProcessConfig() ProcessConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value := s.config
+	value.Arguments = append([]string(nil), value.Arguments...)
+	return value
+}
+
+// RunStoppedMaintenance serializes file maintenance with every process
+// operation. It never starts or stops PalServer and rejects externally managed
+// processes because their lifecycle cannot be coordinated safely.
+func (s *ServerSupervisor) RunStoppedMaintenance(action func() error) (Status, error) {
+	if s.refreshExternal() {
+		return s.Status(), ErrConflict
+	}
+	s.mu.Lock()
+	if s.closed {
+		status := s.statusLocked(time.Now())
+		s.mu.Unlock()
+		return status, errors.New("server supervisor is closed")
+	}
+	if s.isRunningLocked() || s.externalProcess || s.operationActive || s.transactionActive || s.state == StateStarting || s.state == StateStopping || s.state == StateRestartWaiting || s.updateStatus.Running {
+		status := s.statusLocked(time.Now())
+		s.mu.Unlock()
+		return status, ErrConflict
+	}
+	s.operationActive = true
+	s.mu.Unlock()
+
+	err := action()
+	s.mu.Lock()
+	s.operationActive = false
+	if err != nil {
+		s.lastError = err.Error()
+		s.state = StateError
+	} else {
+		s.lastError = ""
+		s.state = StateStopped
+	}
+	status := s.statusLocked(time.Now())
+	s.mu.Unlock()
+	return status, err
 }
 
 func (s *ServerSupervisor) Start() (Status, error) {
@@ -385,6 +432,11 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 
 	if err := s.controller.Save(); err != nil {
 		return fail(fmt.Errorf("save world: %w", err))
+	}
+	if hooks.BeforeShutdown != nil {
+		if err := hooks.BeforeShutdown(); err != nil {
+			return fail(fmt.Errorf("before shutdown: %w", err))
+		}
 	}
 
 	s.mu.Lock()

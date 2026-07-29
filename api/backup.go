@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/zaigie/palworld-server-tool/internal/database"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
 	"github.com/zaigie/palworld-server-tool/internal/tool"
@@ -35,39 +34,7 @@ func createBackup(manager ServerProcessManager) gin.HandlerFunc {
 }
 
 func createBackupRecord(source string) (database.Backup, error) {
-	backup := database.Backup{
-		BackupId: uuid.NewString(),
-		SaveTime: time.Now().UTC(),
-		Source:   source,
-		Status:   "failed",
-	}
-	path, err := tool.Backup()
-	if err != nil {
-		backup.Error = err.Error()
-		if recordErr := service.AddBackup(database.GetDB(), backup); recordErr != nil {
-			return backup, fmt.Errorf("%v; 保存失败记录失败: %w", err, recordErr)
-		}
-		return backup, err
-	}
-	backupDir, err := tool.GetBackupDir()
-	if err != nil {
-		backup.Path = path
-		backup.Error = err.Error()
-		_ = service.AddBackup(database.GetDB(), backup)
-		return backup, err
-	}
-	var size int64
-	if info, statErr := os.Stat(filepath.Join(backupDir, path)); statErr == nil {
-		size = info.Size()
-	}
-	backup.Path = path
-	backup.Size = size
-	backup.Status = "success"
-	if err := service.AddBackup(database.GetDB(), backup); err != nil {
-		_ = os.Remove(filepath.Join(backupDir, path))
-		return database.Backup{}, err
-	}
-	return backup, nil
+	return tool.BackupRecord(source)
 }
 
 // listBackups godoc

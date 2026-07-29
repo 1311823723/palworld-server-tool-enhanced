@@ -22,6 +22,7 @@ import (
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
+	"github.com/zaigie/palworld-server-tool/internal/production"
 	"github.com/zaigie/palworld-server-tool/internal/supervisor"
 	"github.com/zaigie/palworld-server-tool/internal/system"
 	"github.com/zaigie/palworld-server-tool/internal/task"
@@ -93,13 +94,23 @@ func main() {
 		supervisor.OSProcessDetector{},
 		palServerController{},
 	)
-	defer serverSupervisor.Close()
 	if err := serverSupervisor.Bootstrap(); err != nil {
 		logger.Errorf("Server process supervisor startup: %v\n", err)
 	}
 
 	db := database.GetDB()
 	defer db.Close()
+	productionManager, err := production.NewManager(db, serverSupervisor, func(source string) error {
+		_, backupErr := tool.BackupRecord(source)
+		return backupErr
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
+	defer func() {
+		serverSupervisor.Close()
+		productionManager.Close()
+	}()
 	settingsManager := worldsettings.NewManager(configStore, serverSupervisor, func(ctx context.Context) error {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -133,7 +144,7 @@ func main() {
 	startScheduler := func() {
 		go task.Schedule(db)
 	}
-	api.RegisterRouterWithManagers(router, startScheduler, serverSupervisor, settingsManager)
+	api.RegisterRouterWithProductionManager(router, startScheduler, serverSupervisor, settingsManager, productionManager)
 
 	assetsFS, _ := fs.Sub(assets, "assets")
 	router.StaticFS("/assets", http.FS(assetsFS))
@@ -147,7 +158,7 @@ func main() {
 		c.Writer.Write(file)
 	}
 	router.GET("/", serveWebApp)
-	for _, route := range []string{"/work-pals", "/players", "/world-map", "/pal-management", "/base-camps", "/inventory", "/world-settings", "/breeding-farms", "/server-operations"} {
+	for _, route := range []string{"/work-pals", "/players", "/world-map", "/pal-management", "/base-camps", "/inventory", "/world-settings", "/breeding-farms", "/server-operations", "/production-orders"} {
 		router.GET(route, serveWebApp)
 	}
 	router.GET("/pal-conf", func(c *gin.Context) {

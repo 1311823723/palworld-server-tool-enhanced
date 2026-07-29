@@ -1,0 +1,23 @@
+{
+  "name": "PSTProductionBridge",
+  "version": "0.1.0",
+  "protocol_version": 1,
+  "files": [
+    {
+      "path": "Info.json",
+      "sha256": "68a577ca6bbafe769bc45e92af221d9efbcd4e35237a191438f8f1b552069f6c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "dd28f750df02a3523d07e81186ee7a0d0d30a50bdc9618de1f6556d44e79674e"
+    },
+    {
+      "path": "Scripts/json.lua",
+      "sha256": "9eb80a9ace5fa6a937feedea12c3e496f20d1c78818f64df0ccef01a9f2b67e6"
+    },
+    {
+      "path": "Scripts/main.lua",
+      "sha256": "5d749d2e60b1bb7f31c741a22976e20c305ed91f7d343b619b745d26923dd705"
+    }
+  ]
+}
