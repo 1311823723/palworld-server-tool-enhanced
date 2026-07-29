@@ -82,6 +82,34 @@ class ApiService extends Service {
   async previewRestartSchedule(param) {
     return this.fetch(`/api/server/restart-schedule/preview`).post(param).json();
   }
+  async getProductionBridge() {
+    return this.fetch(`/api/production/bridge`).get().json();
+  }
+  async installProductionBridge(param) {
+    return this.fetch(`/api/production/bridge/install`).post(param).json();
+  }
+  async repairProductionBridge(param) {
+    return this.fetch(`/api/production/bridge/repair`).post(param).json();
+  }
+  async disableProductionBridge(param) {
+    return this.fetch(`/api/production/bridge/disable`).post(param).json();
+  }
+  async getProductionCatalog() {
+    return this.fetch(`/api/production/catalog`).get().json();
+  }
+  async previewProductionOrder(param) {
+    return this.fetch(`/api/production/preview`).post(param).json();
+  }
+  async getProductionOrders(param = {}) {
+    const query = this.generateQuery(param);
+    return this.fetch(`/api/production/orders?${query}`).get().json();
+  }
+  async createProductionOrder(param) {
+    return this.fetch(`/api/production/orders`).post(param).json();
+  }
+  async cancelProductionOrder(orderId) {
+    return this.fetch(`/api/production/orders/${encodeURIComponent(orderId)}/cancel`).post().json();
+  }
   async getRuntimeLogs(param = {}) {
     const query = this.generateQuery(param);
     return this.fetch(`/api/logs?${query}`).get().json();

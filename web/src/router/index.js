@@ -61,6 +61,12 @@ const router = createRouter({
       meta: { requiresAdmin: true },
       component: () => import("@/views/ServerOperations.vue"),
     },
+    {
+      path: "/production-orders",
+      name: "production-orders",
+      meta: { requiresAdmin: true },
+      component: () => import("@/views/ProductionOrders.vue"),
+    },
   ],
 });
 
