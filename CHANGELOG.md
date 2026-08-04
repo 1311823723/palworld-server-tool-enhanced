@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.18] - 2026-08-04
+
+### Fixed
+
+- 世界设置校验（`POST /api/world-settings/validate`）对弃用/保留字段（如 `AllowConnectPlatform`）从"直接报错"改为"静默跳过"，即使前端误提交这些字段，也不会再阻塞校验。配合上一版的前端只读处理，彻底解决未修改却报 `is deprecated or reserved` 的问题。
+
 ## [v0.14.17] - 2026-08-04
 
 ### Fixed

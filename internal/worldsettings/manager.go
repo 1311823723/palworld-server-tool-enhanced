@@ -229,7 +229,9 @@ func (manager *Manager) Validate(request ChangeRequest) (ValidationResult, error
 			return ValidationResult{}, fmt.Errorf("secret %s must use the secrets field", key)
 		}
 		if definition.Deprecated || definition.Reserved {
-			return ValidationResult{}, fmt.Errorf("%s is deprecated or reserved", key)
+			// 弃用/保留字段不写入也不报错。旧配置文件可能残留这些字段，若前端
+			// 误提交，跳过即可，避免整个校验失败。
+			continue
 		}
 		normalized, normalizeErr := NormalizeValue(definition, request.Changes[key])
 		if normalizeErr != nil {
