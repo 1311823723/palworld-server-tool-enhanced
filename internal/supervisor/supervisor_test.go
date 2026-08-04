@@ -439,51 +439,6 @@ func TestSettingsTransactionStartFailureRollsBackAndStartsOldSettingsOnce(t *tes
 	}
 }
 
-func TestSettingsTransactionRunsBackupHookBetweenSaveAndShutdown(t *testing.T) {
-	first := newFakeProcess(563)
-	second := newFakeProcess(564)
-	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
-		if attempt == 1 {
-			return first, nil
-		}
-		return second, nil
-	}}
-	controller := &fakeController{}
-	s := New(testConfig(false), launcher, &fakeDetector{}, controller)
-	defer s.Close()
-	if _, err := s.Start(); err != nil {
-		t.Fatal(err)
-	}
-	hookRan := make(chan struct{}, 1)
-	result := make(chan error, 1)
-	go func() {
-		_, err := s.ApplyAndRestart(RestartOptions{}, TransactionHooks{
-			BeforeShutdown: func() error {
-				events := controller.Events()
-				if len(events) != 1 || events[0] != "save" {
-					return errors.New("backup hook did not run immediately after save")
-				}
-				hookRan <- struct{}{}
-				return nil
-			},
-		})
-		result <- err
-	}()
-	select {
-	case <-hookRan:
-	case <-time.After(time.Second):
-		t.Fatal("backup hook did not run")
-	}
-	waitFor(t, func() bool {
-		events := controller.Events()
-		return len(events) == 2 && events[1] == "shutdown"
-	})
-	first.Exit(0, nil)
-	if err := <-result; err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSettingsTransactionWriteFailureRestartsPreviousSettings(t *testing.T) {
 	first := newFakeProcess(565)
 	restored := newFakeProcess(566)
@@ -562,60 +517,6 @@ func TestSettingsTransactionHealthFailureStopsNewProcessThenRollsBack(t *testing
 	case <-rolledBack:
 	default:
 		t.Fatal("rollback was not called")
-	}
-	if launcher.Count() != 3 || !s.Status().Running || s.Status().PID != restored.PID() {
-		t.Fatalf("launches=%d status=%#v", launcher.Count(), s.Status())
-	}
-}
-
-func TestSettingsTransactionForcesSupervisedProcessExitAfterGracePeriod(t *testing.T) {
-	previousGrace := failedProcessGracePeriod
-	previousExitTimeout := failedProcessExitTimeout
-	failedProcessGracePeriod = 10 * time.Millisecond
-	failedProcessExitTimeout = time.Second
-	t.Cleanup(func() {
-		failedProcessGracePeriod = previousGrace
-		failedProcessExitTimeout = previousExitTimeout
-	})
-
-	first := newFakeProcess(580)
-	invalid := newFakeProcess(581)
-	restored := newFakeProcess(582)
-	launcher := &fakeLauncher{startFn: func(attempt int) (ManagedProcess, error) {
-		switch attempt {
-		case 1:
-			return first, nil
-		case 2:
-			return invalid, nil
-		default:
-			return restored, nil
-		}
-	}}
-	controller := &fakeController{}
-	s := New(testConfig(true), launcher, &fakeDetector{}, controller)
-	defer s.Close()
-	_, _ = s.Start()
-
-	result := make(chan error, 1)
-	go func() {
-		_, err := s.ApplyAndRestart(
-			RestartOptions{RestartDelay: time.Millisecond},
-			TransactionHooks{
-				AfterExit:   func() error { return nil },
-				Rollback:    func() error { return nil },
-				HealthCheck: func(context.Context) error { return errors.New("unhealthy") },
-			},
-		)
-		result <- err
-	}()
-	waitFor(t, func() bool { return len(controller.Events()) == 2 })
-	first.Exit(0, nil)
-
-	if err := <-result; err == nil || !strings.Contains(err.Error(), "previous settings were restored") {
-		t.Fatalf("transaction error = %v", err)
-	}
-	if invalid.exitCode != -1 {
-		t.Fatalf("failed process exit code = %d, want forced termination", invalid.exitCode)
 	}
 	if launcher.Count() != 3 || !s.Status().Running || s.Status().PID != restored.PID() {
 		t.Fatalf("launches=%d status=%#v", launcher.Count(), s.Status())

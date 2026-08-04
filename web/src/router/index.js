@@ -62,10 +62,10 @@ const router = createRouter({
       component: () => import("@/views/ServerOperations.vue"),
     },
     {
-      path: "/production-orders",
-      name: "production-orders",
+      path: "/qq-bot",
+      name: "qq-bot",
       meta: { requiresAdmin: true },
-      component: () => import("@/views/ProductionOrders.vue"),
+      component: () => import("@/views/QQBot.vue"),
     },
   ],
 });

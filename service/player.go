@@ -96,6 +96,10 @@ func PutPlayersOnline(db *bbolt.DB, players []database.OnlinePlayer) error {
 func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.Time) error {
 	return db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("players"))
+		presence, err := tx.CreateBucketIfNotExists([]byte("player_presence_events"))
+		if err != nil {
+			return err
+		}
 		onlinePlayerUIDs := make(map[string]struct{}, len(players))
 		for _, p := range players {
 			if p.PlayerUid == "" {
@@ -104,6 +108,7 @@ func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.
 			onlinePlayerUIDs[p.PlayerUid] = struct{}{}
 			existingPlayerData := b.Get([]byte(p.PlayerUid))
 			var player database.Player
+			wasOnline := false
 			if existingPlayerData == nil {
 				// player online but not in database
 				player.PlayerUid = p.PlayerUid
@@ -115,6 +120,7 @@ func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.
 				if err := json.Unmarshal(existingPlayerData, &player); err != nil {
 					return err
 				}
+				wasOnline = player.IsOnline
 				if player.SteamId == "" || strings.Contains(player.SteamId, "000000") {
 					player.SteamId = p.SteamId
 				}
@@ -142,6 +148,11 @@ func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.
 			player.IsOnline = true
 			player.OnlineLastSeenAt = now
 			player.CurrentSessionSeconds = durationSeconds(player.OnlineSince, now)
+			if !wasOnline {
+				if err := putPlayerPresenceEvent(presence, database.PlayerPresenceEvent{PlayerUID: player.PlayerUid, Nickname: player.Nickname, Online: true, CreatedAt: now}); err != nil {
+					return err
+				}
+			}
 
 			v, err := json.Marshal(player)
 			if err != nil {
@@ -164,6 +175,9 @@ func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.
 			if !player.IsOnline {
 				return nil
 			}
+			if err := putPlayerPresenceEvent(presence, database.PlayerPresenceEvent{PlayerUID: player.PlayerUid, Nickname: player.Nickname, Online: false, CreatedAt: now}); err != nil {
+				return err
+			}
 			player.IsOnline = false
 			player.OnlineSince = time.Time{}
 			player.OnlineLastSeenAt = time.Time{}
@@ -182,8 +196,59 @@ func putPlayersOnlineAt(db *bbolt.DB, players []database.OnlinePlayer, now time.
 				return err
 			}
 		}
+		for presence.Stats().KeyN > 10000 {
+			oldest, _ := presence.Cursor().First()
+			if oldest == nil {
+				break
+			}
+			if err := presence.Delete(oldest); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
+}
+
+func putPlayerPresenceEvent(bucket *bbolt.Bucket, event database.PlayerPresenceEvent) error {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	state := "offline"
+	if event.Online {
+		state = "online"
+	}
+	key := event.CreatedAt.UTC().Format("20060102T150405.000000000Z") + "\x00" + event.PlayerUID + "\x00" + state
+	return bucket.Put([]byte(key), data)
+}
+
+func ListPlayerPresenceEvents(db *bbolt.DB, playerUID string, limit int) ([]database.PlayerPresenceEvent, error) {
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	items := make([]database.PlayerPresenceEvent, 0, limit)
+	err := db.View(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket([]byte("player_presence_events"))
+		if bucket == nil {
+			return nil
+		}
+		cursor := bucket.Cursor()
+		for _, value := cursor.Last(); value != nil && len(items) < limit; _, value = cursor.Prev() {
+			var event database.PlayerPresenceEvent
+			if err := json.Unmarshal(value, &event); err != nil {
+				return err
+			}
+			if playerUID != "" && event.PlayerUID != playerUID {
+				continue
+			}
+			items = append(items, event)
+		}
+		return nil
+	})
+	return items, err
 }
 
 func durationSeconds(start, end time.Time) int64 {

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -100,6 +102,53 @@ type BreedingMonitorConfig struct {
 	HistoryRetentionDays    int      `json:"history_retention_days"`
 }
 
+type QQBotPermissionsConfig struct {
+	QueryServerStatus bool `json:"query_server_status"`
+	QueryPlayers      bool `json:"query_players"`
+	QueryInventory    bool `json:"query_inventory"`
+	QueryBases        bool `json:"query_bases"`
+	QueryBreeding     bool `json:"query_breeding"`
+	QueryBackups      bool `json:"query_backups"`
+	RenameBase        bool `json:"rename_base"`
+	StartServer       bool `json:"start_server"`
+	RestartServer     bool `json:"restart_server"`
+	StopServer        bool `json:"stop_server"`
+}
+
+type QQBotNotificationConfig struct {
+	Enabled          bool     `json:"enabled"`
+	GroupIDs         []string `json:"group_ids"`
+	ServerCrash      bool     `json:"server_crash"`
+	WatchdogRestart  bool     `json:"watchdog_restart"`
+	ScheduledRestart bool     `json:"scheduled_restart"`
+	BackupFailure    bool     `json:"backup_failure"`
+	BreedingReminder bool     `json:"breeding_reminder"`
+}
+
+type QQBotAIConfig struct {
+	Enabled             bool   `json:"enabled"`
+	BaseURL             string `json:"base_url"`
+	APIKey              string `json:"api_key"`
+	Model               string `json:"model"`
+	TimeoutSeconds      int    `json:"timeout_seconds"`
+	MaxToolCalls        int    `json:"max_tool_calls"`
+	SendRedactedResults bool   `json:"send_redacted_results"`
+}
+
+type QQBotConfig struct {
+	Enabled            bool                    `json:"enabled"`
+	OneBotWebSocketURL string                  `json:"onebot_websocket_url"`
+	OneBotToken        string                  `json:"onebot_token"`
+	AllowedGroupIDs    []string                `json:"allowed_group_ids"`
+	AdminQQIDs         []string                `json:"admin_qq_ids"`
+	TriggerMode        string                  `json:"trigger_mode"`
+	UserRatePerMinute  int                     `json:"user_rate_per_minute"`
+	GroupRatePerMinute int                     `json:"group_rate_per_minute"`
+	Permissions        QQBotPermissionsConfig  `json:"permissions"`
+	Notifications      QQBotNotificationConfig `json:"notifications"`
+	AI                 QQBotAIConfig           `json:"ai"`
+}
+
 const (
 	ScheduledRestartDaily        = "daily"
 	ScheduledRestartIntervalDays = "interval_days"
@@ -140,6 +189,7 @@ type Config struct {
 	InventoryVisibility InventoryVisibilityConfig `json:"inventory_visibility"`
 	BreedingMonitor     BreedingMonitorConfig     `json:"breeding_monitor"`
 	ServerProcess       ServerProcessConfig       `json:"server_process"`
+	QQBot               QQBotConfig               `json:"qq_bot"`
 }
 
 func Default() Config {
@@ -178,6 +228,25 @@ func Default() Config {
 	value.ServerProcess.GracefulShutdownMessage = "服务器将在 30 秒后重启，请提前回到安全位置。"
 	value.ServerProcess.MaxRestartAttempts = 5
 	value.ServerProcess.RestartAttemptWindowSeconds = 300
+	value.QQBot.OneBotWebSocketURL = "ws://127.0.0.1:3001"
+	value.QQBot.TriggerMode = "at_only"
+	value.QQBot.UserRatePerMinute = 5
+	value.QQBot.GroupRatePerMinute = 30
+	value.QQBot.Permissions = QQBotPermissionsConfig{
+		QueryServerStatus: true,
+		QueryPlayers:      true,
+		QueryInventory:    true,
+		QueryBases:        true,
+		QueryBreeding:     true,
+		QueryBackups:      true,
+		RenameBase:        true,
+		RestartServer:     true,
+	}
+	value.QQBot.AI.BaseURL = "https://api.deepseek.com"
+	value.QQBot.AI.Model = "deepseek-chat"
+	value.QQBot.AI.TimeoutSeconds = 20
+	value.QQBot.AI.MaxToolCalls = 3
+	value.QQBot.AI.SendRedactedResults = true
 	return value
 }
 
@@ -259,6 +328,7 @@ func (s *Store) Initialize(password string) error {
 
 func (s *Store) Update(value Config, newPassword string) error {
 	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
+	value.QQBot = NormalizeQQBot(value.QQBot)
 	if err := Validate(value); err != nil {
 		return err
 	}
@@ -324,6 +394,26 @@ func (s *Store) SetBreedingMonitor(value BreedingMonitorConfig) error {
 	})
 }
 
+func (s *Store) SetQQBot(value QQBotConfig) error {
+	value = NormalizeQQBot(value)
+	if err := ValidateQQBot(value); err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(configBucket)
+		current := Default()
+		if err := json.Unmarshal(bucket.Get(configKey), &current); err != nil {
+			return err
+		}
+		current.QQBot = value
+		data, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		return bucket.Put(configKey, data)
+	})
+}
+
 func Validate(value Config) error {
 	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
 	if err := ValidateWebPort(value.Web.Port); err != nil {
@@ -352,6 +442,119 @@ func Validate(value Config) error {
 	}
 	if err := ValidateServerProcess(value.ServerProcess); err != nil {
 		return err
+	}
+	if err := ValidateQQBot(NormalizeQQBot(value.QQBot)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func NormalizeQQBot(value QQBotConfig) QQBotConfig {
+	defaults := Default().QQBot
+	// Configurations written before the QQ bot feature have no qq_bot object at
+	// all. Treat that zero value as an uninitialized section so safe, useful
+	// permission defaults are applied during migration. Once a WebSocket URL is
+	// present, every permission boolean is kept exactly as the administrator set
+	// it, including an intentionally all-disabled configuration.
+	if strings.TrimSpace(value.OneBotWebSocketURL) == "" {
+		oneBotToken := value.OneBotToken
+		apiKey := value.AI.APIKey
+		value = defaults
+		value.OneBotToken = oneBotToken
+		value.AI.APIKey = apiKey
+	}
+	if strings.TrimSpace(value.OneBotWebSocketURL) == "" {
+		value.OneBotWebSocketURL = defaults.OneBotWebSocketURL
+	}
+	if strings.TrimSpace(value.TriggerMode) == "" {
+		value.TriggerMode = defaults.TriggerMode
+	}
+	if value.UserRatePerMinute == 0 {
+		value.UserRatePerMinute = defaults.UserRatePerMinute
+	}
+	if value.GroupRatePerMinute == 0 {
+		value.GroupRatePerMinute = defaults.GroupRatePerMinute
+	}
+	if strings.TrimSpace(value.AI.BaseURL) == "" {
+		value.AI.BaseURL = defaults.AI.BaseURL
+	}
+	if strings.TrimSpace(value.AI.Model) == "" {
+		value.AI.Model = defaults.AI.Model
+	}
+	if value.AI.TimeoutSeconds == 0 {
+		value.AI.TimeoutSeconds = defaults.AI.TimeoutSeconds
+	}
+	if value.AI.MaxToolCalls == 0 {
+		value.AI.MaxToolCalls = defaults.AI.MaxToolCalls
+	}
+	if value.AllowedGroupIDs == nil {
+		value.AllowedGroupIDs = []string{}
+	}
+	if value.AdminQQIDs == nil {
+		value.AdminQQIDs = []string{}
+	}
+	if value.Notifications.GroupIDs == nil {
+		value.Notifications.GroupIDs = []string{}
+	}
+	return value
+}
+
+var qqIdentifierPattern = regexp.MustCompile(`^[0-9]{5,20}$`)
+
+func ValidateQQBot(value QQBotConfig) error {
+	value = NormalizeQQBot(value)
+	parsed, err := url.Parse(value.OneBotWebSocketURL)
+	if err != nil || parsed.Scheme != "ws" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("OneBot WebSocket 地址必须是无账号、查询参数和片段的 ws:// 回环地址")
+	}
+	host := parsed.Hostname()
+	if host != "127.0.0.1" && host != "::1" {
+		return errors.New("OneBot WebSocket 只允许连接 127.0.0.1 或 ::1")
+	}
+	if parsed.Port() == "" {
+		return errors.New("OneBot WebSocket 地址必须包含端口")
+	}
+	if value.Enabled && strings.TrimSpace(value.OneBotToken) == "" {
+		return errors.New("启用 QQ 机器人前必须设置 OneBot Token")
+	}
+	if value.TriggerMode != "at_only" {
+		return errors.New("QQ 群聊当前只支持 @机器人触发")
+	}
+	if value.UserRatePerMinute < 1 || value.UserRatePerMinute > 60 || value.GroupRatePerMinute < 1 || value.GroupRatePerMinute > 600 {
+		return errors.New("QQ 机器人频率限制超出允许范围")
+	}
+	if len(value.AllowedGroupIDs) > 100 || len(value.AdminQQIDs) > 100 || len(value.Notifications.GroupIDs) > 100 {
+		return errors.New("QQ 机器人群号或管理员列表过长")
+	}
+	allowed := make(map[string]struct{}, len(value.AllowedGroupIDs))
+	for _, id := range value.AllowedGroupIDs {
+		id = strings.TrimSpace(id)
+		if !qqIdentifierPattern.MatchString(id) {
+			return errors.New("群号必须是 5 到 20 位数字")
+		}
+		allowed[id] = struct{}{}
+	}
+	for _, id := range value.AdminQQIDs {
+		if !qqIdentifierPattern.MatchString(strings.TrimSpace(id)) {
+			return errors.New("管理员 QQ 必须是 5 到 20 位数字")
+		}
+	}
+	for _, id := range value.Notifications.GroupIDs {
+		if _, ok := allowed[strings.TrimSpace(id)]; !ok {
+			return errors.New("通知群必须同时存在于允许群列表")
+		}
+	}
+	if value.AI.Enabled {
+		if strings.TrimSpace(value.AI.APIKey) == "" {
+			return errors.New("启用 DeepSeek 前必须设置 API Key")
+		}
+		aiURL, parseErr := url.Parse(value.AI.BaseURL)
+		if parseErr != nil || aiURL.Scheme != "https" || !strings.EqualFold(aiURL.Hostname(), "api.deepseek.com") || aiURL.User != nil || aiURL.RawQuery != "" || aiURL.Fragment != "" {
+			return errors.New("DeepSeek 地址只允许使用 https://api.deepseek.com")
+		}
+	}
+	if value.AI.TimeoutSeconds < 1 || value.AI.TimeoutSeconds > 120 || value.AI.MaxToolCalls < 1 || value.AI.MaxToolCalls > 5 {
+		return errors.New("DeepSeek 超时或最大工具调用次数超出允许范围")
 	}
 	return nil
 }
@@ -553,6 +756,8 @@ func validateScheduledRestartTime(value string) error {
 func (value Config) Redacted() Config {
 	value.Rcon.Password = ""
 	value.Rest.Password = ""
+	value.QQBot.OneBotToken = ""
+	value.QQBot.AI.APIKey = ""
 	return value
 }
 

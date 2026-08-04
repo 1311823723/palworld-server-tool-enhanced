@@ -81,27 +81,8 @@ func TestServerProcessAPIRequiresAdministratorJWT(t *testing.T) {
 func TestNewOperationsAPIsRequireAdministratorJWT(t *testing.T) {
 	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
 	defer store.Close()
-	for _, path := range []string{"/api/server/update", "/api/logs", "/api/audit", "/api/player-progress", "/api/production/bridge", "/api/production/catalog", "/api/production/orders"} {
+	for _, path := range []string{"/api/server/update", "/api/logs", "/api/audit", "/api/player-progress"} {
 		response := performJSONRequest(router, http.MethodGet, path, nil, "")
-		if response.Code != http.StatusUnauthorized {
-			t.Fatalf("unauthenticated %s status code = %d, want 401", path, response.Code)
-		}
-	}
-}
-
-func TestProductionMutationAPIsRequireAdministratorJWT(t *testing.T) {
-	router, _, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
-	defer store.Close()
-	for _, path := range []string{
-		"/api/production/bridge/recheck",
-		"/api/production/bridge/install",
-		"/api/production/bridge/repair",
-		"/api/production/bridge/disable",
-		"/api/production/preview",
-		"/api/production/orders",
-		"/api/production/orders/45d0338c-9277-461f-a430-d84cf78f04b1/cancel",
-	} {
-		response := performJSONRequest(router, http.MethodPost, path, map[string]any{}, "")
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("unauthenticated %s status code = %d, want 401", path, response.Code)
 		}

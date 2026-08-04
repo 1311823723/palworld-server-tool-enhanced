@@ -45,9 +45,6 @@ jobs:
       - name: Verify map tiles
         run: python3 script/verify_map.py
 
-      - name: Verify Production Bridge package
-        run: python3 script/verify_bridge.py
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:

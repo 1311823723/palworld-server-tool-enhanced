@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/zaigie/palworld-server-tool/internal/auth"
 	"github.com/zaigie/palworld-server-tool/internal/config"
+	"github.com/zaigie/palworld-server-tool/internal/qqbot"
 	"github.com/zaigie/palworld-server-tool/internal/tool"
 )
 
@@ -84,6 +85,10 @@ func putConfig(c *gin.Context) {
 }
 
 func putConfigWithSupervisor(processManager ServerProcessManager) gin.HandlerFunc {
+	return putConfigWithManagers(processManager, nil)
+}
+
+func putConfigWithManagers(processManager ServerProcessManager, qqBotManager *qqbot.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var request updateConfigRequest
 		if err := c.ShouldBindJSON(&request); err != nil {
@@ -96,6 +101,14 @@ func putConfigWithSupervisor(processManager ServerProcessManager) gin.HandlerFun
 		}
 		if request.Settings.Rest.Password == "" {
 			request.Settings.Rest.Password = previous.Rest.Password
+		}
+		if request.Settings.QQBot.OneBotWebSocketURL == "" {
+			request.Settings.QQBot = previous.QQBot
+		} else if request.Settings.QQBot.OneBotToken == "" {
+			request.Settings.QQBot.OneBotToken = previous.QQBot.OneBotToken
+		}
+		if request.Settings.QQBot.AI.APIKey == "" {
+			request.Settings.QQBot.AI.APIKey = previous.QQBot.AI.APIKey
 		}
 		if previous.Web.PortSource != config.WebPortOverrideNone && request.Settings.Web.Port != previous.Web.Port {
 			c.JSON(http.StatusConflict, gin.H{
@@ -111,6 +124,9 @@ func putConfigWithSupervisor(processManager ServerProcessManager) gin.HandlerFun
 		}
 		if processManager != nil {
 			processManager.UpdateConfig(config.Current().ServerProcess)
+		}
+		if qqBotManager != nil {
+			_ = qqBotManager.UpdateConfig(config.Current().QQBot)
 		}
 		token := ""
 		if request.NewPassword != "" {

@@ -2,7 +2,26 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
-## [未发布]
+## [v0.14.8] - 2026-08-04
+
+### Added
+
+- 新增管理员“QQ 机器人”页面和 NapCatQQ + OneBot 11 正向 WebSocket 客户端，仅允许连接同机回环地址。
+- 新增服务器、玩家在线时长、库存、据点、工作帕鲁、配种提醒、备份和自动重启计划的本地 QQ 命令，不依赖 AI。
+- 新增据点改名和 PalServer 启动、平滑重启、保持停服命令，按管理员 QQ、独立权限开关和六位一次性验证码进行二次确认。
+- 新增可选 DeepSeek Tool Calling，只注册固定查询、据点改名和 PalServer 控制工具；调用失败自动回退基础命令。
+- 新增玩家上线/下线转换记录、群消息去重、用户/群限流、断线指数重连和有界主动通知队列。
+
+### Security
+
+- OneBot Token 和 DeepSeek API Key 保存后不回显，空值保留、显式确认后才能清除；日志、审计、URL 和前端状态缓存均不记录密钥。
+- OneBot Token 只发往本机 NapCat 鉴权头；DeepSeek 请求会移除 IP、Steam/User ID、本机路径、密码、JWT 和技术错误详情。
+- QQ 机器人不具备 Windows/PST 关机、RCON、Shell、SteamCMD、世界设置、备份恢复删除、公会或白名单修改能力。
+
+### Removed
+
+- 暂时移除 Production Bridge、生产订单页面及全部订单 API。当前运行时适配器与部分 Palworld/UE4SS 组合不兼容，可能影响服务器稳定性和存档解析。
+- Windows Release 不再携带或安装 `PSTProductionBridge`。地图、备份、进程守护、自动重启、配种提醒、RCON、公会、白名单和中文运营台不受影响。
 
 ## [v0.14.7] - 2026-07-29
 

@@ -23,11 +23,6 @@ var (
 	ErrInvalidConfig        = errors.New("invalid server process configuration")
 )
 
-var (
-	failedProcessGracePeriod = 30 * time.Second
-	failedProcessExitTimeout = 30 * time.Second
-)
-
 type State string
 
 const (
@@ -135,11 +130,9 @@ type StopOptions struct {
 }
 
 type TransactionHooks struct {
-	BeforeShutdown func() error
-	AfterExit      func() error
-	Rollback       func() error
-	HealthCheck    func(context.Context) error
-	HealthTimeout  time.Duration
+	AfterExit   func() error
+	Rollback    func() error
+	HealthCheck func(context.Context) error
 }
 
 type Status struct {
@@ -264,52 +257,6 @@ func (s *ServerSupervisor) UpdateConfig(value config.ServerProcessConfig) {
 	}
 	s.mu.Unlock()
 	s.notifyScheduleChanged()
-}
-
-// ProcessConfig returns a detached copy of the current process configuration.
-// It is intentionally limited to process paths and non-secret launch settings.
-func (s *ServerSupervisor) ProcessConfig() ProcessConfig {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	value := s.config
-	value.Arguments = append([]string(nil), value.Arguments...)
-	return value
-}
-
-// RunStoppedMaintenance serializes file maintenance with every process
-// operation. It never starts or stops PalServer and rejects externally managed
-// processes because their lifecycle cannot be coordinated safely.
-func (s *ServerSupervisor) RunStoppedMaintenance(action func() error) (Status, error) {
-	if s.refreshExternal() {
-		return s.Status(), ErrConflict
-	}
-	s.mu.Lock()
-	if s.closed {
-		status := s.statusLocked(time.Now())
-		s.mu.Unlock()
-		return status, errors.New("server supervisor is closed")
-	}
-	if s.isRunningLocked() || s.externalProcess || s.operationActive || s.transactionActive || s.state == StateStarting || s.state == StateStopping || s.state == StateRestartWaiting || s.updateStatus.Running {
-		status := s.statusLocked(time.Now())
-		s.mu.Unlock()
-		return status, ErrConflict
-	}
-	s.operationActive = true
-	s.mu.Unlock()
-
-	err := action()
-	s.mu.Lock()
-	s.operationActive = false
-	if err != nil {
-		s.lastError = err.Error()
-		s.state = StateError
-	} else {
-		s.lastError = ""
-		s.state = StateStopped
-	}
-	status := s.statusLocked(time.Now())
-	s.mu.Unlock()
-	return status, err
 }
 
 func (s *ServerSupervisor) Start() (Status, error) {
@@ -439,11 +386,6 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 	if err := s.controller.Save(); err != nil {
 		return fail(fmt.Errorf("save world: %w", err))
 	}
-	if hooks.BeforeShutdown != nil {
-		if err := hooks.BeforeShutdown(); err != nil {
-			return fail(fmt.Errorf("before shutdown: %w", err))
-		}
-	}
 
 	s.mu.Lock()
 	if !s.isRunningLocked() {
@@ -518,11 +460,7 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 	}
 
 	if hooks.HealthCheck != nil {
-		healthTimeout := hooks.HealthTimeout
-		if healthTimeout <= 0 {
-			healthTimeout = 90 * time.Second
-		}
-		healthContext, cancel := context.WithTimeout(s.ctx, healthTimeout)
+		healthContext, cancel := context.WithTimeout(s.ctx, 90*time.Second)
 		err := hooks.HealthCheck(healthContext)
 		cancel()
 		if err != nil {
@@ -537,46 +475,25 @@ func (s *ServerSupervisor) applyAndRestart(options RestartOptions, hooks Transac
 			s.mu.Unlock()
 
 			// The new process must be fully gone before restoring the previous file.
-			// Give the official shutdown a short grace period, then terminate only
-			// the supervised process so a successful-but-ineffective REST response
-			// cannot leave the maintenance transaction stuck for minutes.
-			shutdownErr := s.controller.Shutdown(0, "配置验证失败，正在恢复原设置")
-			exited := false
-			if shutdownErr == nil {
-				graceTimer := time.NewTimer(failedProcessGracePeriod)
-				select {
-				case <-s.ctx.Done():
-					graceTimer.Stop()
-					return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
-				case <-exitSignal:
-					graceTimer.Stop()
-					exited = true
-				case <-graceTimer.C:
-				}
-			}
-			if !exited {
+			// Prefer the official graceful shutdown path, but if REST itself is what
+			// the new configuration broke, terminate only the supervised process.
+			if shutdownErr := s.controller.Shutdown(0, "Settings validation failed; restoring previous settings"); shutdownErr != nil {
 				if process == nil {
-					if shutdownErr != nil {
-						return fail(fmt.Errorf("%v; rollback shutdown failed: %w", healthErr, shutdownErr))
-					}
-					return fail(fmt.Errorf("%v; failed process is no longer supervised", healthErr))
+					return fail(fmt.Errorf("%v; rollback shutdown failed: %w", healthErr, shutdownErr))
 				}
 				if killErr := process.Kill(); killErr != nil {
-					if shutdownErr != nil {
-						return fail(fmt.Errorf("%v; rollback shutdown failed: %v; terminate failed: %w", healthErr, shutdownErr, killErr))
-					}
-					return fail(fmt.Errorf("%v; terminate failed process: %w", healthErr, killErr))
+					return fail(fmt.Errorf("%v; rollback shutdown failed: %v; terminate failed: %w", healthErr, shutdownErr, killErr))
 				}
-				killTimer := time.NewTimer(failedProcessExitTimeout)
-				select {
-				case <-s.ctx.Done():
-					killTimer.Stop()
-					return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
-				case <-killTimer.C:
-					return fail(fmt.Errorf("%v; timed out waiting for terminated process to exit", healthErr))
-				case <-exitSignal:
-					killTimer.Stop()
-				}
+			}
+			rollbackTimer := time.NewTimer(2 * time.Minute)
+			select {
+			case <-s.ctx.Done():
+				rollbackTimer.Stop()
+				return fail(fmt.Errorf("%v; supervisor closed during rollback", healthErr))
+			case <-rollbackTimer.C:
+				return fail(fmt.Errorf("%v; timed out waiting for failed process to exit", healthErr))
+			case <-exitSignal:
+				rollbackTimer.Stop()
 			}
 			if hooks.Rollback == nil {
 				return fail(fmt.Errorf("%v; no rollback hook was provided", healthErr))

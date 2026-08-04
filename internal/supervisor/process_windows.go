@@ -34,7 +34,6 @@ func (OSProcessLauncher) Start(_ context.Context, processConfig ProcessConfig) (
 	}
 	cmd := exec.Command(processConfig.ExecutablePath, processConfig.Arguments...)
 	cmd.Dir = processConfig.WorkingDirectory
-	cmd.Env = palServerEnvironment(os.Environ(), processConfig)
 	stdout := &serverOutputFilter{dst: os.Stdout}
 	stderr := &serverOutputFilter{dst: os.Stderr}
 	cmd.Stdout = stdout

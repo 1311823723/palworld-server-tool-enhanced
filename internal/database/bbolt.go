@@ -24,6 +24,16 @@ func InitDB() *bbolt.DB {
 	if err != nil {
 		logger.Panic(err)
 	}
+	// Player presence transitions are kept separately from the current player
+	// snapshot so QQ queries can report recent online/offline history without
+	// retaining IP addresses or other connection details.
+	err = db_.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("player_presence_events"))
+		return err
+	})
+	if err != nil {
+		logger.Panic(err)
+	}
 	// guilds
 	err = db_.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte("guilds"))
