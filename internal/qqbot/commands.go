@@ -13,6 +13,7 @@ import (
 
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
+	"github.com/zaigie/palworld-server-tool/internal/logger"
 	"github.com/zaigie/palworld-server-tool/internal/supervisor"
 	"github.com/zaigie/palworld-server-tool/service"
 )
@@ -28,7 +29,10 @@ func (m *Manager) handleMessage(parent context.Context, event jsonObject) {
 	if !handled {
 		var err error
 		response, err = m.answerWithAI(ctx, conversation, text)
-		if err != nil || strings.TrimSpace(response) == "" {
+		if err != nil {
+			logger.Warnf("AI 调用失败: %v", err)
+			response = fmt.Sprintf("AI 暂时不可用（%s）。发送“帮助”查看可用命令。", err.Error())
+		} else if strings.TrimSpace(response) == "" {
 			response = "我暂时没理解这句话。发送“帮助”查看可用命令；DeepSeek 未配置或不可用时，基础命令仍可正常使用。"
 		}
 	}

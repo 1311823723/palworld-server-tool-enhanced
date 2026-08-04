@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.11] - 2026-08-04
+
+### Fixed
+
+- QQ 机器人 AI 调用失败时不再一律回复"DeepSeek 未配置"。现在会返回真实原因（API Key 无效、超时、额度不足等）并在日志中记录，便于定位问题。
+
 ## [v0.14.10] - 2026-08-04
 
 ### Added
