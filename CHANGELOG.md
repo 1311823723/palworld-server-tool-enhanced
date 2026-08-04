@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.16] - 2026-08-04
+
+### Fixed
+
+- 修复前端错误提示把后端英文技术错误吞成泛化的"校验失败"的问题。现在会透传真实错误文本，方便定位世界设置校验（`POST /api/world-settings/validate`）等接口返回 400 的具体原因；并补充 `palserver process management is not configured` 的中文翻译。
+
 ## [v0.14.15] - 2026-08-04
 
 ### Added

@@ -2,6 +2,7 @@ const exactMessages = {
   "server process is already running or busy": "服务器正在运行或正在处理其他操作",
   "server process is not running": "服务器当前没有运行",
   "server process management is not configured": "尚未配置服务器进程管理",
+  "palserver process management is not configured": "尚未配置服务器进程管理",
   "server process management is unsupported on this platform": "当前系统不支持服务器进程管理",
   "invalid server process configuration": "服务器进程配置有误",
 };
@@ -42,9 +43,10 @@ export function translateBackendMessage(value, fallback = "操作失败，请稍
     return [...new Set([...translated, ...details])].join("；");
   }
 
-  // 后端已经返回中文时直接保留；英文技术错误不原样甩给服主。
+  // 后端已经返回中文时直接保留；英文技术错误也透传原文，避免把真实原因
+  // 吞成泛化的"校验失败"，方便定位问题。
   if (/[\u3400-\u9fff]/.test(raw)) return raw;
-  return fallback;
+  return raw;
 }
 
 export function apiErrorText(data, fallback, statusCode, requestError) {
