@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.13] - 2026-08-04
+
+### Fixed
+
+- 修复无参数工具（服务器状态、在线玩家、据点列表等）的 JSON Schema 中 `required` 被序列化为 `null` 的问题。JSON Schema 要求 `required` 必须是数组，DeepSeek 因此返回 HTTP 400 `null is not of type "array"` 拒绝所有带工具调用的请求。
+
 ## [v0.14.12] - 2026-08-04
 
 ### Fixed

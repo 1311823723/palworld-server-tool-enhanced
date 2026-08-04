@@ -250,7 +250,14 @@ func TestAI(ctx context.Context, value config.QQBotAIConfig) (AIConnectionTest, 
 
 func deepSeekTools() []jsonObject {
 	object := func(properties jsonObject, required ...string) jsonObject {
-		return jsonObject{"type": "object", "properties": properties, "required": required, "additionalProperties": false}
+		// required 是变参，无参数调用时为 nil，会被序列化成 JSON null；JSON
+		// Schema 要求 required 必须是数组（允许为空数组，但不能为 null），否则
+		// DeepSeek 返回 400 "null is not of type \"array\""。
+		requiredList := required
+		if requiredList == nil {
+			requiredList = []string{}
+		}
+		return jsonObject{"type": "object", "properties": properties, "required": requiredList, "additionalProperties": false}
 	}
 	stringProperty := func(description string) jsonObject { return jsonObject{"type": "string", "description": description} }
 	tool := func(name, description string, parameters jsonObject) jsonObject {
