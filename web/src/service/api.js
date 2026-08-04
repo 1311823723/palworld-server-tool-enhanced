@@ -197,13 +197,13 @@ class ApiService extends Service {
     return this.fetch(`/api/world-settings/validate`).post(param).json();
   }
   async applyWorldSettings(param) {
-    return this.fetch(`/api/world-settings/apply`).post(param).json();
+    return this.fetch(`/api/world-settings/apply`, 180000).post(param).json();
   }
   async getWorldSettingsBackups() {
     return this.fetch(`/api/world-settings/backups`).get().json();
   }
   async restoreWorldSettingsBackup(backupId, param) {
-    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}/restore`).post(param).json();
+    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}/restore`, 180000).post(param).json();
   }
   async deleteWorldSettingsBackup(backupId) {
     return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}`).delete().json();

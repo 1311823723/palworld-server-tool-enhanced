@@ -16,10 +16,10 @@ class Service {
    * @param {string} url - The URL to fetch data from.
    * @return {Promise<Response>} A Promise that resolves to the response from the server.
    */
-  fetch(url) {
+  fetch(url, timeoutMs = REQUEST_TIMEOUT_MS) {
     return useFetch(`${url}`, {
       updateDataOnError: true,
-      timeout: REQUEST_TIMEOUT_MS,
+      timeout: timeoutMs,
       beforeFetch({ options }) {
         const token = localStorage.getItem("palworld_token");
         options.headers = {
