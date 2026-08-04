@@ -134,6 +134,10 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 		if permissions.QueryPlayers {
 			return m.onlinePlayersText()
 		}
+	case "get_offline_players":
+		if permissions.QueryPlayers {
+			return m.offlinePlayersText()
+		}
 	case "get_player_presence":
 		if permissions.QueryPlayers {
 			return m.playerPresenceText(args.Name)
@@ -267,10 +271,11 @@ func deepSeekTools() []jsonObject {
 	return []jsonObject{
 		tool("get_server_status", "查询 PalServer 运行状态", empty),
 		tool("get_online_players", "查询当前在线玩家", empty),
-		tool("get_player_presence", "查询玩家本次、累计和最近在线时间", object(jsonObject{"name": stringProperty("玩家昵称")}, "name")),
+		tool("get_offline_players", "查询当前离线玩家、最后在线时间和累计时长", empty),
+		tool("get_player_presence", "查询玩家本次、累计和最近在线时间，支持在线和离线玩家", object(jsonObject{"name": stringProperty("玩家昵称")}, "name")),
 		tool("search_inventory", "按中文物品名称查询库存数量和位置", object(jsonObject{"item": stringProperty("物品名称")}, "item")),
 		tool("list_bases", "列出当前据点", empty),
-		tool("get_base_workers", "查询指定据点的异常工作帕鲁", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
+		tool("get_base_workers", "查询指定据点的全部工作帕鲁、等级和异常状态", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
 		tool("get_breeding_alerts", "查询最近配种产蛋提醒", empty),
 		tool("get_backup_status", "查询最近一次存档备份", empty),
 		tool("get_restart_schedule", "查询下次自动重启", empty),

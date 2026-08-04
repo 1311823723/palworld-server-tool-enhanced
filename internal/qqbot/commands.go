@@ -214,6 +214,12 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		}
 		return m.onlinePlayersText(), true
 	}
+	if containsAny(compact, "离线玩家", "谁没在线", "不在线") {
+		if !value.Permissions.QueryPlayers {
+			return "玩家查询未开放。", true
+		}
+		return m.offlinePlayersText(), true
+	}
 	if strings.Contains(compact, "在线时间") || strings.Contains(compact, "上下线") || strings.Contains(compact, "最后在线") {
 		if !value.Permissions.QueryPlayers {
 			return "玩家查询未开放。", true
@@ -239,11 +245,15 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		}
 		return m.breedingText(), true
 	}
-	if strings.Contains(compact, "异常帕鲁") || strings.Contains(compact, "工作帕鲁") {
+	if strings.Contains(compact, "异常帕鲁") || strings.Contains(compact, "工作帕鲁") || strings.Contains(compact, "帕鲁列表") || strings.Contains(compact, "有哪些帕鲁") {
 		if !value.Permissions.QueryBases {
 			return "据点查询未开放。", true
 		}
-		name := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(text, "有哪些异常帕鲁", ""), "异常帕鲁", ""))
+		name := strings.TrimSpace(compact)
+		for _, keyword := range []string{"有哪些异常帕鲁", "有哪些帕鲁", "异常帕鲁", "工作帕鲁", "帕鲁列表", "帕鲁"} {
+			name = strings.ReplaceAll(name, keyword, "")
+		}
+		name = strings.TrimSpace(name)
 		return m.baseWorkersText(name), true
 	}
 	if oldName, newName, ok := parseRename(text); ok {
@@ -275,10 +285,10 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 
 func commandHelp() string {
 	return "可用命令：\n" +
-		"• 服务器状态 / 现在谁在线\n" +
+		"• 服务器状态 / 现在谁在线 / 谁没在线\n" +
 		"• 查询 张三 在线时间\n" +
 		"• 石头还有多少 / 石头在哪\n" +
-		"• 据点列表 / 第一据点异常帕鲁\n" +
+		"• 据点列表 / 第一据点有哪些帕鲁 / 第一据点异常帕鲁\n" +
 		"• 配种提醒 / 最近一次备份 / 下次自动重启\n" +
 		"管理员还可发起：把旧基地改名为第一据点、启动服务器、重启服务器、关服。危险操作需在 60 秒内回复六位验证码。"
 }
@@ -384,6 +394,33 @@ func (m *Manager) playerPresenceText(name string) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *Manager) offlinePlayersText() string {
+	players, err := service.ListPlayers(m.db)
+	if err != nil {
+		return "暂时无法读取玩家列表。"
+	}
+	offline := make([]database.TersePlayer, 0)
+	for _, player := range players {
+		if !player.IsOnline {
+			offline = append(offline, player)
+		}
+	}
+	if len(offline) == 0 {
+		return "当前没有离线玩家。"
+	}
+	sort.Slice(offline, func(i, j int) bool { return offline[i].LastOnline.After(offline[j].LastOnline) })
+	const maxListed = 15
+	lines := []string{fmt.Sprintf("当前 %d 名玩家离线：", len(offline))}
+	for index, player := range offline {
+		if index == maxListed {
+			lines = append(lines, fmt.Sprintf("另有 %d 名离线玩家未列出", len(offline)-index))
+			break
+		}
+		lines = append(lines, fmt.Sprintf("• %s，最后在线 %s，累计 %s", displayPlayerName(player), formatTime(player.LastOnline), humanDuration(player.TotalOnlineSeconds)))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m *Manager) inventoryText(item string) string {
 	page, err := service.InventorySummary(m.db, service.InventoryQuery{Q: item, Page: 1, PageSize: 5})
 	if err != nil {
@@ -444,36 +481,74 @@ func (m *Manager) baseWorkersText(name string) string {
 	if err != nil {
 		return "暂时无法读取工作帕鲁。"
 	}
-	abnormal := make([]string, 0)
+	if len(workers) == 0 {
+		return fmt.Sprintf("%s 没有工作帕鲁。", base.DisplayName)
+	}
+	type workerEntry struct {
+		line     string
+		abnormal bool
+	}
+	entries := make([]workerEntry, 0, len(workers))
 	for _, worker := range workers {
-		reasons := worker.StatusAbnormalities
-		if worker.IsDown != nil && *worker.IsDown {
-			reasons = append(reasons, "倒地")
+		reasons := workerAbnormalReasons(worker)
+		palName := worker.Nickname
+		if palName == "" {
+			palName = worker.PalID
 		}
-		if worker.IsSick != nil && *worker.IsSick {
-			reasons = append(reasons, "生病")
+		if palName == "" {
+			palName = "未命名帕鲁"
 		}
-		if worker.FullStomach != nil && *worker.FullStomach < service.LowFullStomach {
-			reasons = append(reasons, "饥饿")
-		}
-		if worker.Sanity != nil && *worker.Sanity < service.LowSanity {
-			reasons = append(reasons, "SAN 过低")
+		line := fmt.Sprintf("• %s Lv.%d", palName, worker.Level)
+		if worker.CurrentWork != nil && strings.TrimSpace(*worker.CurrentWork) != "" {
+			line += " 工作：" + strings.TrimSpace(*worker.CurrentWork)
 		}
 		if len(reasons) > 0 {
-			palName := worker.Nickname
-			if palName == "" {
-				palName = worker.PalID
-			}
-			abnormal = append(abnormal, fmt.Sprintf("• %s：%s", palName, strings.Join(uniqueStrings(reasons), "、")))
+			line += "（" + strings.Join(uniqueStrings(reasons), "、") + "）"
+		}
+		entries = append(entries, workerEntry{line: line, abnormal: len(reasons) > 0})
+	}
+	// 异常帕鲁排前面，方便管理员一眼看到需要处理的对象。
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].abnormal && !entries[j].abnormal })
+	const maxListed = 15
+	lines := []string{fmt.Sprintf("%s 共 %d 只工作帕鲁：", base.DisplayName, len(workers))}
+	listed := 0
+	for _, entry := range entries {
+		if listed == maxListed {
+			break
+		}
+		lines = append(lines, entry.line)
+		listed++
+	}
+	if listed < len(entries) {
+		lines = append(lines, fmt.Sprintf("另有 %d 只帕鲁未列出", len(entries)-listed))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// workerAbnormalReasons 汇总一只帕鲁的异常状态，与网页端异常判定保持一致。
+func workerAbnormalReasons(worker database.BaseWorkerPal) []string {
+	reasons := append([]string{}, worker.StatusAbnormalities...)
+	if worker.IsDown != nil && *worker.IsDown {
+		reasons = append(reasons, "倒地")
+	}
+	if worker.IsSick != nil && *worker.IsSick {
+		reasons = append(reasons, "生病")
+	}
+	if worker.IsInjured != nil && *worker.IsInjured {
+		reasons = append(reasons, "受伤")
+	}
+	if worker.FullStomach != nil && *worker.FullStomach < service.LowFullStomach {
+		reasons = append(reasons, "饥饿")
+	}
+	if worker.Sanity != nil && *worker.Sanity < service.LowSanity {
+		reasons = append(reasons, "SAN 过低")
+	}
+	if worker.HP != nil && worker.MaxHP != nil && *worker.MaxHP > 0 {
+		if percent := float64(*worker.HP) * 100 / float64(*worker.MaxHP); percent < service.LowHPPercent {
+			reasons = append(reasons, "生命过低")
 		}
 	}
-	if len(abnormal) == 0 {
-		return fmt.Sprintf("%s 的 %d 只工作帕鲁目前没有明显异常。", base.DisplayName, len(workers))
-	}
-	if len(abnormal) > 10 {
-		abnormal = abnormal[:10]
-	}
-	return fmt.Sprintf("%s 有 %d 只异常帕鲁：\n%s", base.DisplayName, len(abnormal), strings.Join(abnormal, "\n"))
+	return reasons
 }
 
 func (m *Manager) breedingText() string {
