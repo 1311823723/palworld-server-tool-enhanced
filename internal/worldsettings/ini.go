@@ -238,13 +238,15 @@ func DecodeValue(definition Definition, raw string) (any, error) {
 	case "enum":
 		return strings.Trim(raw, "\""), nil
 	case "string_list", "technology_list", "platform_list":
-		if !strings.HasPrefix(raw, "(") || !strings.HasSuffix(raw, ")") {
-			if raw == "" {
-				return []string{}, nil
-			}
-			return nil, errors.New("expected parenthesized list")
+		if raw == "" {
+			return []string{}, nil
 		}
-		parts, err := splitTopLevel(raw[1:len(raw)-1], ',')
+		// 部分游戏版本会直接以逗号分隔裸列表（不带括号），两种格式都接受。
+		inner := raw
+		if strings.HasPrefix(raw, "(") && strings.HasSuffix(raw, ")") {
+			inner = raw[1 : len(raw)-1]
+		}
+		parts, err := splitTopLevel(inner, ',')
 		if err != nil {
 			return nil, err
 		}

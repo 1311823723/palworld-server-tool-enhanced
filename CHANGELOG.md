@@ -2,6 +2,13 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.17] - 2026-08-04
+
+### Fixed
+
+- 修复世界设置解析器只支持括号格式的列表字段（`CrossplayPlatforms`、`DenyTechnologyList`）的问题。现在也接受逗号分隔的裸列表格式，不再产生 `expected parenthesized list` 解析警告。
+- 修复世界设置页保存时报 `AllowConnectPlatform is deprecated or reserved` 的问题。弃用/保留字段（deprecated/reserved）现在在页面中只读、不可修改，也不会提交给后端校验。
+
 ## [v0.14.16] - 2026-08-04
 
 ### Fixed

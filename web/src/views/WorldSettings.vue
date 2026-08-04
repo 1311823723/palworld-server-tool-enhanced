@@ -51,7 +51,12 @@ const commonSettingLabels = {
 };
 const commonSettingKeys = Object.keys(commonSettingLabels);
 const categoryOptions = computed(() => Object.keys(categoryLabels).map((key) => ({ label: categoryLabels[key], value: key })));
-const changed = (definition) => definition.secret ? Boolean(secretInputs[definition.key] || clearSecrets.value.includes(definition.key)) : JSON.stringify(values[definition.key]) !== JSON.stringify(current.value.values?.[definition.key]);
+const isReadonlySetting = (definition) => Boolean(definition.deprecated || definition.reserved);
+const changed = (definition) => {
+  // 弃用/保留字段不可修改，也不参与提交，避免后端校验拒绝。
+  if (isReadonlySetting(definition)) return false;
+  return definition.secret ? Boolean(secretInputs[definition.key] || clearSecrets.value.includes(definition.key)) : JSON.stringify(values[definition.key]) !== JSON.stringify(current.value.values?.[definition.key]);
+};
 const visibleDefinitions = computed(() => schema.value.filter((definition) => {
   if (category.value && definition.category !== category.value) return false;
   if (riskyOnly.value && !definition.dangerous && !definition.performance_warning && !definition.secret) return false;
@@ -222,12 +227,12 @@ onMounted(load);
                   <n-input v-model:value="secretInputs[definition.key]" type="password" show-password-on="click" placeholder="输入新值；留空保持不变" :disabled="clearSecrets.includes(definition.key)" class="mt-2" />
                   <n-checkbox :checked="clearSecrets.includes(definition.key)" @update:checked="value => toggleClearSecret(definition.key, value)" class="mt-2">显式清空该密码</n-checkbox>
                 </template>
-                <n-switch v-else-if="definition.type === 'boolean'" v-model:value="values[definition.key]" />
-                <n-input-number v-else-if="definition.type === 'integer' || definition.type === 'float'" v-model:value="values[definition.key]" :min="definition.minimum" :max="definition.maximum" :precision="definition.type === 'integer' ? 0 : undefined" clearable style="width:100%" />
-                <n-select v-else-if="definition.type === 'enum'" v-model:value="values[definition.key]" :options="(definition.options || []).map(value => ({label:value,value}))" />
-                <n-checkbox-group v-else-if="definition.type === 'platform_list'" v-model:value="values[definition.key]"><n-space><n-checkbox v-for="option in definition.options" :key="option" :value="option">{{ option }}</n-checkbox></n-space></n-checkbox-group>
-                <n-dynamic-tags v-else-if="definition.type.endsWith('_list')" v-model:value="values[definition.key]" />
-                <n-input v-else v-model:value="values[definition.key]" type="textarea" autosize />
+                <n-switch v-else-if="definition.type === 'boolean'" v-model:value="values[definition.key]" :disabled="isReadonlySetting(definition)" />
+                <n-input-number v-else-if="definition.type === 'integer' || definition.type === 'float'" v-model:value="values[definition.key]" :min="definition.minimum" :max="definition.maximum" :precision="definition.type === 'integer' ? 0 : undefined" :disabled="isReadonlySetting(definition)" clearable style="width:100%" />
+                <n-select v-else-if="definition.type === 'enum'" v-model:value="values[definition.key]" :options="(definition.options || []).map(value => ({label:value,value}))" :disabled="isReadonlySetting(definition)" />
+                <n-checkbox-group v-else-if="definition.type === 'platform_list'" v-model:value="values[definition.key]" :disabled="isReadonlySetting(definition)"><n-space><n-checkbox v-for="option in definition.options" :key="option" :value="option">{{ option }}</n-checkbox></n-space></n-checkbox-group>
+                <n-dynamic-tags v-else-if="definition.type.endsWith('_list')" v-model:value="values[definition.key]" :disabled="isReadonlySetting(definition)" />
+                <n-input v-else v-model:value="values[definition.key]" type="textarea" autosize :disabled="isReadonlySetting(definition)" />
                 <small class="source">来源：{{ definition.source }} · 修改后需重启</small>
               </n-card>
             </div>
