@@ -283,6 +283,15 @@ func (s *ServerSupervisor) startMode(automatic, transaction bool) (Status, error
 		s.mu.Unlock()
 		return status, ErrProcessNotConfigured
 	}
+	// A delayed automatic restart may have passed its timer check immediately
+	// before an administrator disables the watchdog. Re-check the desired state
+	// while holding the supervisor lock so that a stale goroutine cannot start a
+	// server that was explicitly requested to remain stopped.
+	if automatic && !s.desiredRunning {
+		status := s.statusLocked(time.Now())
+		s.mu.Unlock()
+		return status, ErrConflict
+	}
 	if s.process != nil || s.externalProcess || s.state == StateStarting || s.state == StateStopping || (!automatic && s.state == StateRestartWaiting) || (s.operationActive && !transaction) || (s.updateStatus.Running && !transaction) {
 		status := s.statusLocked(time.Now())
 		s.mu.Unlock()

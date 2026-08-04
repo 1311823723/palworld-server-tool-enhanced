@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.9] - 2026-08-04
+
+### Fixed
+
+- 修复关闭崩溃守护时，已经到期但尚未真正启动的自动重启任务仍可能拉起 PalServer 的并发问题。
+
 ## [v0.14.8] - 2026-08-04
 
 ### Added
