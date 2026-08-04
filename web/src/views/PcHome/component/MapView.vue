@@ -12,6 +12,7 @@ import {
 } from "@vue-leaflet/vue-leaflet";
 import { AddCircle20Filled, SubtractCircle20Filled } from "@vicons/fluent";
 import { ChevronDown, ChevronUp } from "@vicons/ionicons5";
+import { useDialog, useMessage } from "naive-ui";
 import ApiService from "@/service/api.js";
 import IconBase from "@/assets/map/base.webp";
 import IconPlayer from "@/assets/map/player.webp";
@@ -24,12 +25,15 @@ import {
   mergeMapPlayers,
   selectVisibleMapPlayers,
 } from "@/utils/mapPlayers.js";
+import { baseDisplayName, validateBaseAliasName } from "@/utils/baseAliases.js";
 
 const { t } = useI18n();
 
 const LAND_SCAPE = [349400, 724400, -1099400, -724400];
 
 const api = new ApiService();
+const message = useMessage();
+const dialog = useDialog();
 
 const mousePosition = ref([0, 0]);
 const zoom = ref(2);
@@ -45,6 +49,10 @@ const showFastTravel = ref(false);
 const mapRef = ref(null);
 const searchTarget = ref(null);
 const controlCollapsed = ref(false);
+const editingBaseID = ref("");
+const aliasName = ref("");
+const aliasSaving = ref(false);
+const isAdmin = computed(() => Boolean(localStorage.getItem("palworld_token")));
 
 let timer = null;
 let stopped = false;
@@ -85,6 +93,8 @@ const rawBaseMarkers = computed(() =>
       key: `${guildIndex}-${campIndex}`,
       guild,
       camp,
+      campIndex,
+      displayName: baseDisplayName(camp, campIndex),
       position: toMapPosition([camp.location_x, camp.location_y]),
     })),
   ),
@@ -145,10 +155,64 @@ const searchOptions = computed(() => [
     value: `player:${player.player_uid}`,
   })),
   ...rawBaseMarkers.value.map((marker) => ({
-    label: `${t("map.baseCamp")} · ${marker.guild.name || t("filter.unnamedGuild")}`,
+    label: `${marker.displayName} · ${marker.guild.name || t("filter.unnamedGuild")}`,
     value: `base:${marker.key}`,
   })),
 ]);
+
+const allGuildBases = computed(() => guildList.value.flatMap((guild) => guild.base_camp || []));
+const aliasError = computed(() => validateBaseAliasName(aliasName.value, editingBaseID.value, allGuildBases.value));
+const clusterLabel = (cluster) => cluster.markers.length > 1
+  ? t("map.clusterTitle", { count: cluster.markers.length })
+  : cluster.markers[0].displayName;
+
+const refreshGuilds = async () => {
+  const { data, statusCode } = await api.getGuildList();
+  if (statusCode.value === 200 && Array.isArray(data.value)) guildList.value = data.value;
+};
+
+const beginRenameBase = (marker) => {
+  editingBaseID.value = marker.camp.id || "";
+  aliasName.value = marker.camp.custom_name || marker.displayName;
+};
+
+const cancelRenameBase = () => {
+  editingBaseID.value = "";
+  aliasName.value = "";
+};
+
+const saveBaseAlias = async () => {
+  if (aliasSaving.value || aliasError.value || !editingBaseID.value) return;
+  aliasSaving.value = true;
+  const { data, statusCode } = await api.updateBaseAlias(editingBaseID.value, { name: aliasName.value.trim() });
+  aliasSaving.value = false;
+  if (statusCode.value !== 200) {
+    message.error(data.value?.error || "据点名称保存失败");
+    return;
+  }
+  cancelRenameBase();
+  await refreshGuilds();
+  message.success("据点名称已更新");
+};
+
+const resetBaseAlias = (marker) => {
+  dialog.warning({
+    title: "重置据点名称",
+    content: `确定把“${marker.displayName}”恢复为“据点 ${marker.campIndex + 1}”吗？`,
+    positiveText: "重置",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      const { data, statusCode } = await api.deleteBaseAlias(marker.camp.id);
+      if (statusCode.value !== 200) {
+        message.error(data.value?.error || "据点名称重置失败");
+        return;
+      }
+      cancelRenameBase();
+      await refreshGuilds();
+      message.success("已恢复默认据点名称");
+    },
+  });
+};
 
 const focusSearchTarget = (value) => {
   if (!value) return;
@@ -398,35 +462,12 @@ onUnmounted(() => {
           :key="cluster.key"
           :lat-lng="cluster.position"
           :options="{
-            title:
-              cluster.markers.length > 1
-                ? $t('map.clusterTitle', { count: cluster.markers.length })
-                : $t('map.baseCampTitle', {
-                    name:
-                      cluster.markers[0].guild.name ||
-                      $t('filter.unnamedGuild'),
-                  }),
-            alt:
-              cluster.markers.length > 1
-                ? $t('map.clusterTitle', { count: cluster.markers.length })
-                : $t('map.baseCampTitle', {
-                    name:
-                      cluster.markers[0].guild.name ||
-                      $t('filter.unnamedGuild'),
-                  }),
+            title: clusterLabel(cluster),
+            alt: clusterLabel(cluster),
           }"
           @ready="
             (marker) =>
-              setMarkerAccessibility(
-                marker,
-                cluster.markers.length > 1
-                  ? $t('map.clusterTitle', { count: cluster.markers.length })
-                  : $t('map.baseCampTitle', {
-                      name:
-                        cluster.markers[0].guild.name ||
-                        $t('filter.unnamedGuild'),
-                    }),
-              )
+              setMarkerAccessibility(marker, clusterLabel(cluster))
           "
         >
           <l-icon
@@ -434,13 +475,17 @@ onUnmounted(() => {
             :icon-size="cluster.markers.length > 1 ? [62, 62] : [55, 55]"
           />
           <l-tooltip
-            v-if="cluster.markers.length > 1"
-            :options="{ direction: 'top', permanent: true, offset: [0, -18] }"
+            :options="{
+              direction: 'top',
+              permanent: true,
+              offset: [0, -18],
+              className: cluster.markers.length > 1 ? 'base-cluster-tooltip' : 'base-name-tooltip',
+            }"
           >
-            {{ cluster.markers.length }}
+            {{ cluster.markers.length > 1 ? cluster.markers.length : cluster.markers[0].displayName }}
           </l-tooltip>
           <l-popup
-            :options="{ interactive: true, maxWidth: 460, minWidth: 380 }"
+            :options="{ interactive: true, maxWidth: 460, minWidth: 280 }"
           >
             <section class="map-info-card base-info-card">
               <div v-if="cluster.markers.length > 1" class="cluster-heading">
@@ -454,9 +499,10 @@ onUnmounted(() => {
                 <header class="base-card-header">
                   <div>
                     <span class="card-eyebrow">{{ $t("map.baseCamp") }}</span>
+                    <strong class="base-display-name">{{ marker.displayName }}</strong>
                     <button
                       type="button"
-                      class="card-title-link"
+                      class="inline-link base-guild-link"
                       @click="toGuild(marker.guild)"
                     >
                       {{ guildDisplayName(marker.guild) }}
@@ -489,6 +535,31 @@ onUnmounted(() => {
                     </button>
                   </div>
                 </div>
+                <div
+                  v-if="editingBaseID === marker.camp.id"
+                  class="base-alias-editor"
+                  @click.stop
+                >
+                  <n-input
+                    v-model:value="aliasName"
+                    size="small"
+                    maxlength="40"
+                    show-count
+                    placeholder="例如：北境矿场"
+                    @keyup.enter="saveBaseAlias"
+                  />
+                  <span v-if="aliasError" class="alias-error">{{ aliasError }}</span>
+                  <div class="alias-editor-actions">
+                    <n-button size="tiny" @click="cancelRenameBase">取消</n-button>
+                    <n-button
+                      size="tiny"
+                      type="primary"
+                      :loading="aliasSaving"
+                      :disabled="Boolean(aliasError)"
+                      @click="saveBaseAlias"
+                    >保存</n-button>
+                  </div>
+                </div>
                 <footer class="card-actions">
                   <button
                     type="button"
@@ -497,6 +568,19 @@ onUnmounted(() => {
                   >
                     {{ $t("button.viewGuild") }}
                   </button>
+                  <n-button
+                    v-if="isAdmin && marker.camp.id && editingBaseID !== marker.camp.id"
+                    size="small"
+                    secondary
+                    @click.stop="beginRenameBase(marker)"
+                  >重命名</n-button>
+                  <n-button
+                    v-if="isAdmin && marker.camp.custom_name && editingBaseID !== marker.camp.id"
+                    size="small"
+                    text
+                    type="error"
+                    @click.stop="resetBaseAlias(marker)"
+                  >重置</n-button>
                 </footer>
               </article>
             </section>
@@ -685,6 +769,18 @@ onUnmounted(() => {
 :deep(.player-tooltip--offline) {
   color: #64748b;
   background: rgba(241, 245, 249, 0.94);
+}
+
+:deep(.base-name-tooltip),
+:deep(.base-cluster-tooltip) {
+  padding: 4px 9px;
+  color: #075e4f;
+  background: rgba(236, 253, 245, 0.96);
+  border: 1px solid rgba(24, 160, 88, 0.18);
+  border-radius: 999px;
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.18);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 :deep(.leaflet-popup-content-wrapper) {
@@ -1136,6 +1232,24 @@ onUnmounted(() => {
   text-transform: uppercase;
 }
 
+.base-display-name {
+  display: block;
+  overflow: hidden;
+  max-width: 250px;
+  color: #172033;
+  font-size: 16px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.base-guild-link {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
 .base-level {
   flex: none;
   padding: 4px 8px;
@@ -1158,6 +1272,27 @@ onUnmounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.base-alias-editor {
+  display: grid;
+  gap: 7px;
+  margin: 12px 0;
+  padding: 10px;
+  background: #f6faf8;
+  border: 1px solid #dcece5;
+  border-radius: 10px;
+}
+
+.alias-error {
+  color: #d03050;
+  font-size: 11px;
+}
+
+.alias-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
 .member-link {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zaigie/palworld-server-tool/internal/database"
+	"github.com/zaigie/palworld-server-tool/internal/gamelabels"
 	"go.etcd.io/bbolt"
 )
 
@@ -487,8 +488,11 @@ func matchesInventory(location database.InventoryLocation, query InventoryQuery)
 	if query.Q == "" {
 		return true
 	}
-	q := strings.ToLower(query.Q)
-	searchable := []string{location.ItemID, location.ItemName, location.PlayerName, location.GuildName, location.BaseID, location.BaseName, location.BaseDisplayName, location.ContainerID, location.ContainerName}
+	q := strings.ToLower(strings.TrimSpace(query.Q))
+	if gamelabels.MatchesItem(location.ItemID, location.ItemName, q) {
+		return true
+	}
+	searchable := []string{location.PlayerName, location.GuildName, location.BaseID, location.BaseName, location.BaseDisplayName, location.ContainerID, location.ContainerName}
 	for _, value := range searchable {
 		if strings.Contains(strings.ToLower(value), q) {
 			return true
@@ -524,6 +528,7 @@ func filteredLocations(db *bbolt.DB, query InventoryQuery, itemID string) ([]dat
 				}
 				location.BaseDisplayName = displayName
 			}
+			location.ItemDisplayName = gamelabels.ItemChineseName(location.ItemID, location.ItemName)
 			if matchesInventory(location, query) {
 				locations = append(locations, location)
 			}
@@ -543,7 +548,7 @@ func InventorySummary(db *bbolt.DB, query InventoryQuery) (InventoryPage, error)
 	for _, location := range locations {
 		aggregate := aggregates[location.ItemID]
 		if aggregate == nil {
-			aggregate = &database.InventoryAggregate{ItemID: location.ItemID, ItemName: location.ItemName}
+			aggregate = &database.InventoryAggregate{ItemID: location.ItemID, ItemName: location.ItemName, ItemDisplayName: location.ItemDisplayName}
 			aggregates[location.ItemID] = aggregate
 			sets[location.ItemID] = &containerSets{map[string]struct{}{}, map[string]struct{}{}, map[string]struct{}{}}
 		}

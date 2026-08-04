@@ -2,10 +2,50 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/zaigie/palworld-server-tool/internal/database"
 	"go.etcd.io/bbolt"
 )
+
+func decorateGuildBasesTx(tx *bbolt.Tx, guild *database.Guild) error {
+	var snapshot *bbolt.Bucket
+	if current, err := activeSnapshot(tx); err == nil {
+		snapshot = current
+	} else if !errors.Is(err, ErrSnapshotUnavailable) {
+		return err
+	}
+	for index := range guild.BaseCamp {
+		base := &guild.BaseCamp[index]
+		base.DisplayName = fmt.Sprintf("据点 %d", index+1)
+		if base.Id == "" {
+			continue
+		}
+		if snapshot != nil {
+			baseBucket := snapshot.Bucket(basesBucket)
+			if baseBucket != nil {
+				data := baseBucket.Get([]byte(base.Id))
+				if data != nil {
+					var current database.BaseCampSnapshot
+					if err := json.Unmarshal(data, &current); err != nil {
+						return err
+					}
+					base.BaseName = current.BaseName
+				}
+			}
+		}
+		alias, found, err := readBaseAlias(tx.Bucket(baseAliasesBucket), base.Id)
+		if err != nil {
+			return err
+		}
+		if found {
+			base.CustomName = alias.Name
+			base.DisplayName = alias.Name
+		}
+	}
+	return nil
+}
 
 func PutGuilds(db *bbolt.DB, guilds []database.Guild) error {
 	return db.Update(func(tx *bbolt.Tx) error {
@@ -30,6 +70,9 @@ func ListGuilds(db *bbolt.DB) ([]database.Guild, error) {
 		return b.ForEach(func(k, v []byte) error {
 			var guild database.Guild
 			if err := json.Unmarshal(v, &guild); err != nil {
+				return err
+			}
+			if err := decorateGuildBasesTx(tx, &guild); err != nil {
 				return err
 			}
 			guilds = append(guilds, guild)
@@ -58,6 +101,9 @@ func GetGuild(db *bbolt.DB, playerUID string) (database.Guild, error) {
 			// 检查当前guild的players是否包含指定的player_uid
 			for _, player := range g.Players {
 				if player.PlayerUid == playerUID {
+					if err := decorateGuildBasesTx(tx, &g); err != nil {
+						return err
+					}
 					guild = g
 					return nil
 				}

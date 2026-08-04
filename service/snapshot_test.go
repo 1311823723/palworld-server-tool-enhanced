@@ -116,3 +116,33 @@ func TestInventorySummaryDeduplicatesContainerSlotAndBalancesTotals(t *testing.T
 		t.Fatalf("locations total=%d sum=%d, aggregate=%d", total, sum, item.TotalCount)
 	}
 }
+
+func TestInventorySummaryMatchesChineseItemName(t *testing.T) {
+	db := openSnapshotTestDB(t)
+	stone := inventoryLocation("container-a", 0, "stone", 100)
+	stone.ItemName = "Stone"
+	wood := inventoryLocation("container-b", 0, "wood", 50)
+	wood.ItemName = "Wood"
+	if _, err := PutSnapshot(db, snapshotFixture("base-a", stone, wood)); err != nil {
+		t.Fatalf("put snapshot: %v", err)
+	}
+
+	page, err := InventorySummary(db, InventoryQuery{Q: "石头"})
+	if err != nil {
+		t.Fatalf("query Chinese item name: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].ItemID != "stone" {
+		t.Fatalf("Chinese query items = %#v", page.Items)
+	}
+	if page.Items[0].ItemDisplayName != "石头" {
+		t.Fatalf("Chinese display name = %q", page.Items[0].ItemDisplayName)
+	}
+
+	locations, _, total, err := InventoryLocations(db, "stone", InventoryQuery{})
+	if err != nil || total != 1 || len(locations) != 1 {
+		t.Fatalf("stone locations total=%d items=%#v err=%v", total, locations, err)
+	}
+	if locations[0].ItemDisplayName != "石头" {
+		t.Fatalf("location Chinese display name = %q", locations[0].ItemDisplayName)
+	}
+}

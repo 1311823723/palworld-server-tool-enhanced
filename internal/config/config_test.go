@@ -14,6 +14,17 @@ func TestQQBotConfigurationIsLocalOnlyAndRedacted(t *testing.T) {
 	if value.OneBotWebSocketURL != "ws://127.0.0.1:3001" || !value.Permissions.RestartServer || value.Permissions.StartServer || value.Permissions.StopServer {
 		t.Fatalf("unexpected QQ bot defaults: %#v", value)
 	}
+	if !value.Persona.Enabled || value.Persona.Style != QQBotPersonaLively || !value.Persona.SeriousOnError {
+		t.Fatalf("unexpected QQ bot persona defaults: %#v", value.Persona)
+	}
+	if value.AI.Model != DeepSeekModelV4Flash {
+		t.Fatalf("unexpected DeepSeek model: %q", value.AI.Model)
+	}
+	legacy := value
+	legacy.AI.Model = "deepseek-chat"
+	if migrated := NormalizeQQBot(legacy); migrated.AI.Model != DeepSeekModelV4Flash {
+		t.Fatalf("legacy DeepSeek model was not migrated: %q", migrated.AI.Model)
+	}
 	value.Enabled = true
 	if err := ValidateQQBot(value); err == nil {
 		t.Fatal("enabled QQ bot without token must be rejected")
@@ -29,6 +40,11 @@ func TestQQBotConfigurationIsLocalOnlyAndRedacted(t *testing.T) {
 	value.OneBotWebSocketURL = "ws://127.0.0.1:3001?access_token=leak"
 	if err := ValidateQQBot(value); err == nil {
 		t.Fatal("OneBot token in URL must be rejected")
+	}
+	value.OneBotWebSocketURL = "ws://127.0.0.1:3001"
+	value.Persona.Style = "custom-prompt"
+	if err := ValidateQQBot(value); err == nil {
+		t.Fatal("unsupported QQ bot persona style must be rejected")
 	}
 
 	settings := Default()
@@ -49,6 +65,8 @@ func TestQQBotSensitiveSettingsPersistInConfigDB(t *testing.T) {
 	value := store.Config().QQBot
 	value.OneBotToken = "persisted-onebot-secret"
 	value.AI.APIKey = "persisted-deepseek-secret"
+	value.Persona.Style = QQBotPersonaMischievous
+	value.Persona.SeriousOnError = false
 	if err := store.SetQQBot(value); err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +80,9 @@ func TestQQBotSensitiveSettingsPersistInConfigDB(t *testing.T) {
 	defer reopened.Close()
 	if reopened.Config().QQBot.OneBotToken != "persisted-onebot-secret" || reopened.Config().QQBot.AI.APIKey != "persisted-deepseek-secret" {
 		t.Fatal("QQ bot secrets did not persist in config.db")
+	}
+	if persona := reopened.Config().QQBot.Persona; persona.Style != QQBotPersonaMischievous || persona.SeriousOnError {
+		t.Fatalf("QQ bot persona did not persist in config.db: %#v", persona)
 	}
 }
 

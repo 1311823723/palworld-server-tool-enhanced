@@ -187,9 +187,9 @@ func testQQBotAI(manager *qqbot.Manager) gin.HandlerFunc {
 		if strings.TrimSpace(request.BaseURL) != "" {
 			value.BaseURL = request.BaseURL
 		}
-		if strings.TrimSpace(request.Model) != "" {
-			value.Model = request.Model
-		}
+		// The model is fixed by PST. Keep accepting the legacy request field for
+		// API compatibility, but never allow it to select another model.
+		value.Model = config.DeepSeekModelV4Flash
 		if request.TimeoutSeconds > 0 {
 			value.TimeoutSeconds = request.TimeoutSeconds
 		}

@@ -367,6 +367,7 @@ func (m *Manager) callAction(ctx context.Context, action string, params jsonObje
 func (m *Manager) Send(ctx context.Context, conversation Conversation, message string) error {
 	// Use an explicit text segment so save-derived player/base/item names cannot
 	// be interpreted as CQ codes by OneBot implementations.
+	message = m.personaReply(message)
 	params := jsonObject{"message": []jsonObject{{"type": "text", "data": jsonObject{"text": message}}}}
 	action := "send_private_msg"
 	if conversation.Type == "group" {

@@ -18,6 +18,7 @@ const deepSeekKey = ref("");
 const clearOneBotToken = ref(false);
 const clearDeepSeekKey = ref(false);
 let statusTimer;
+const DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 const form = reactive({
   enabled: false,
@@ -49,10 +50,15 @@ const form = reactive({
     backup_failure: false,
     breeding_reminder: false,
   },
+  persona: {
+    enabled: true,
+    style: "lively",
+    serious_on_error: true,
+  },
   ai: {
     enabled: false,
     base_url: "https://api.deepseek.com",
-    model: "deepseek-chat",
+    model: DEEPSEEK_MODEL,
     timeout_seconds: 20,
     max_tool_calls: 3,
     send_redacted_results: true,
@@ -73,6 +79,17 @@ const groupOptions = computed(() => groups.value.map((item) => ({
 const selectedTestGroup = computed(() => form.notifications.group_ids[0] || form.allowed_group_ids[0] || "");
 const hasOneBotSecret = computed(() => form.token_is_set || oneBotToken.value.trim());
 const hasAISecret = computed(() => form.ai.api_key_is_set || deepSeekKey.value.trim());
+const personaStyleOptions = [
+  { label: "克制", value: "restrained" },
+  { label: "活泼", value: "lively" },
+  { label: "调皮", value: "mischievous" },
+];
+const personaPreview = computed(() => {
+  if (!form.persona.enabled) return "服务器当前运行正常。在线玩家：6 人。";
+  if (form.persona.style === "restrained") return "本喵查到了。服务器当前运行正常，在线玩家 6 人。";
+  if (form.persona.style === "mischievous") return "这种小事当然难不倒本喵，嘿嘿！服务器当前运行正常，在线玩家 6 人。";
+  return "哼哼，本喵已经查到了！服务器当前运行正常，在线玩家 6 人。";
+});
 
 function assignConfig(value) {
   Object.assign(form, value || {});
@@ -80,7 +97,8 @@ function assignConfig(value) {
   form.admin_qq_ids = (value?.admin_qq_ids?.length ? [...value.admin_qq_ids] : [""]);
   form.permissions = { ...form.permissions, ...(value?.permissions || {}) };
   form.notifications = { ...form.notifications, ...(value?.notifications || {}), group_ids: [...(value?.notifications?.group_ids || [])] };
-  form.ai = { ...form.ai, ...(value?.ai || {}) };
+  form.persona = { ...form.persona, ...(value?.persona || {}) };
+  form.ai = { ...form.ai, ...(value?.ai || {}), model: DEEPSEEK_MODEL };
 }
 
 async function loadConfig() {
@@ -125,11 +143,12 @@ async function save() {
     group_rate_per_minute: Number(form.group_rate_per_minute),
     permissions: { ...form.permissions },
     notifications: { ...form.notifications, group_ids: [...form.notifications.group_ids] },
+    persona: { ...form.persona },
     ai: {
       enabled: form.ai.enabled,
       base_url: form.ai.base_url,
       api_key: deepSeekKey.value,
-      model: form.ai.model,
+      model: DEEPSEEK_MODEL,
       timeout_seconds: Number(form.ai.timeout_seconds),
       max_tool_calls: Number(form.ai.max_tool_calls),
       send_redacted_results: form.ai.send_redacted_results,
@@ -214,7 +233,7 @@ async function testAI() {
   const { data, statusCode, error } = await api.testQQBotAI({
     api_key: deepSeekKey.value,
     base_url: form.ai.base_url,
-    model: form.ai.model,
+    model: DEEPSEEK_MODEL,
     timeout_seconds: Number(form.ai.timeout_seconds),
   });
   testing.value = "";
@@ -365,11 +384,29 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
             </div>
           </n-card>
 
-          <n-card title="5. DeepSeek（可选）" size="small">
+          <n-card title="5. 回复风格" size="small">
+            <div class="section-toggle"><div><b>使用“捣蛋喵”人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value="form.persona.enabled" /></div>
+            <n-collapse-transition :show="form.persona.enabled">
+              <div class="form-grid persona-form">
+                <n-form-item label="猫味程度">
+                  <n-select v-model:value="form.persona.style" :options="personaStyleOptions" />
+                </n-form-item>
+                <n-form-item label="严重故障">
+                  <div class="setting-row">
+                    <span>发生崩溃、备份失败或操作失败时使用严肃语气</span>
+                    <n-switch v-model:value="form.persona.serious_on_error" />
+                  </div>
+                </n-form-item>
+              </div>
+              <div class="persona-preview"><span>回复预览</span><p>{{ personaPreview }}</p></div>
+            </n-collapse-transition>
+          </n-card>
+
+          <n-card title="6. DeepSeek（可选）" size="small">
             <div class="section-toggle"><div><b>让机器人理解更自由的说法</b><span>关闭或调用失败时，固定命令和常见中文问法仍然可用。</span></div><n-switch v-model:value="form.ai.enabled" /></div>
             <n-collapse-transition :show="form.ai.enabled">
               <div class="form-grid ai-form">
-                <n-form-item label="模型"><n-select v-model:value="form.ai.model" :options="[{ label: 'DeepSeek Chat', value: 'deepseek-chat' }, { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' }]" /></n-form-item>
+                <n-form-item label="模型"><n-input value="DeepSeek V4 Flash" disabled /></n-form-item>
                 <n-form-item :label="form.ai.api_key_is_set ? 'API Key（已保存）' : 'API Key'"><n-input v-model:value="deepSeekKey" type="password" show-password-on="click" :placeholder="form.ai.api_key_is_set ? '留空则保留原 Key' : 'sk-…'" @update:value="clearDeepSeekKey = false" /></n-form-item>
                 <n-form-item label="超时（秒）"><n-input-number v-model:value="form.ai.timeout_seconds" :min="1" :max="120" /></n-form-item>
                 <n-form-item label="单次最多工具调用"><n-input-number v-model:value="form.ai.max_tool_calls" :min="1" :max="5" /></n-form-item>
@@ -443,6 +480,11 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
 .switch-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
 .switch-grid.disabled { opacity: .58; }
 .ai-form { margin-top: 14px; }
+.persona-form { margin-top: 14px; }
+.setting-row { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 16px; color: #55655e; font-size: 12px; line-height: 1.5; }
+.persona-preview { padding: 12px 14px; border: 1px solid rgba(23,141,121,.16); border-radius: 9px; background: #f2f8f5; }
+.persona-preview span { color: #178d79; font-size: 11px; font-weight: 700; }
+.persona-preview p { margin: 5px 0 0; color: #35463f; line-height: 1.65; }
 .help-column code { display: block; margin-bottom: 8px; padding: 9px 10px; border-radius: 7px; color: #176b5d; background: #edf6f2; font-size: 12px; white-space: normal; }
 .check-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
 .check-list li { color: #7e8c85; font-size: 13px; }
@@ -456,6 +498,8 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
   .status-panel, .save-bar { background: rgba(24,34,29,.96); }
   .permission-groups > div { background: rgba(255,255,255,.025); }
   .help-column code { color: #82cdbb; background: rgba(23,141,121,.13); }
+  .persona-preview { background: rgba(23,141,121,.08); }
+  .persona-preview p, .setting-row { color: #c9d5cf; }
 }
 @media (max-width: 1080px) { .content-grid { grid-template-columns: 1fr; } .help-column { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 860px) {

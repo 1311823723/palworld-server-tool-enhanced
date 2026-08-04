@@ -60,6 +60,7 @@ type PublicConfig struct {
 	GroupRatePerMinute int                            `json:"group_rate_per_minute"`
 	Permissions        config.QQBotPermissionsConfig  `json:"permissions"`
 	Notifications      config.QQBotNotificationConfig `json:"notifications"`
+	Persona            config.QQBotPersonaConfig      `json:"persona"`
 	AI                 PublicAIConfig                 `json:"ai"`
 }
 
@@ -86,6 +87,7 @@ func Redact(value config.QQBotConfig) PublicConfig {
 		GroupRatePerMinute: value.GroupRatePerMinute,
 		Permissions:        value.Permissions,
 		Notifications:      value.Notifications,
+		Persona:            value.Persona,
 		AI: PublicAIConfig{
 			Enabled:             value.AI.Enabled,
 			BaseURL:             value.AI.BaseURL,

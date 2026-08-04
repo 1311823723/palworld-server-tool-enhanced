@@ -12,6 +12,12 @@ test("QQ bot page keeps secrets ephemeral and explains no-AI commands", () => {
   const page = source("../views/QQBot.vue");
   assert.match(page, /DeepSeek（可选）/);
   assert.match(page, /关闭或调用失败时，固定命令和常见中文问法仍然可用/);
+  assert.match(page, /使用“捣蛋喵”人设/);
+  assert.match(page, /猫味程度/);
+  assert.match(page, /严重故障/);
+  assert.match(page, /deepseek-v4-flash/);
+  assert.doesNotMatch(page, /deepseek-chat|deepseek-reasoner/);
+  assert.match(page, /persona: \{ \.\.\.form\.persona \}/);
   assert.match(page, /oneBotToken\.value = ""/);
   assert.match(page, /deepSeekKey\.value = ""/);
   assert.doesNotMatch(page, /localStorage.*oneBot|localStorage.*deepSeek/i);
