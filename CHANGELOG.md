@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.22] - 2026-08-05
+
+### Fixed
+
+- 提高 PalServer REST API 超时（5 秒 → 60 秒）。保存世界、平滑关服等 REST 调用可能耗时数秒，过短的超时会让 PST 提前关闭连接，在 PalServer 侧堆积 `CLOSE_WAIT` 连接，最终耗尽连接导致新的保存/关服请求 `connection refused`。
+
 ## [v0.14.21] - 2026-08-05
 
 ### Fixed

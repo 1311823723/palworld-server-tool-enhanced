@@ -217,7 +217,9 @@ func Default() Config {
 	value.Rcon.Timeout = 5
 	value.Rest.Address = "http://127.0.0.1:8212"
 	value.Rest.Username = "admin"
-	value.Rest.Timeout = 5
+	// 保存世界/平滑关服等 REST 调用可能耗时数秒，5 秒超时容易触发连接被
+	// 提前关闭并在 PalServer 侧堆积 CLOSE_WAIT，最终导致新请求连接被拒。
+	value.Rest.Timeout = 60
 	value.Save.SourceMode = "directory"
 	value.Save.SyncInterval = 120
 	value.Save.BackupInterval = 14400
