@@ -338,6 +338,13 @@ type Player struct {
 	Progress *PlayerProgress `json:"progress,omitempty"`
 }
 
+type PlayerPresenceEvent struct {
+	PlayerUID string    `json:"player_uid"`
+	Nickname  string    `json:"nickname"`
+	Online    bool      `json:"online"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type PlayerProgress struct {
 	DiscoveredPals          *int64          `json:"discovered_pals"`
 	CapturedPals            *int64          `json:"captured_pals"`

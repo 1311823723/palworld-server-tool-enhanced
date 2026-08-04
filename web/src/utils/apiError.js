@@ -4,7 +4,6 @@ const exactMessages = {
   "server process management is not configured": "尚未配置服务器进程管理",
   "server process management is unsupported on this platform": "当前系统不支持服务器进程管理",
   "invalid server process configuration": "服务器进程配置有误",
-  "production bridge is currently unavailable": "生产 Bridge 当前不可用",
 };
 
 const fragmentMessages = [
@@ -31,7 +30,17 @@ export function translateBackendMessage(value, fallback = "操作失败，请稍
   const translated = fragmentMessages
     .filter(([pattern]) => pattern.test(raw))
     .map(([, text]) => text);
-  if (translated.length) return [...new Set(translated)].join("；");
+  if (translated.length) {
+    const details = raw
+      .split(/[;；]/)
+      .map((part) => {
+        const separator = part.indexOf(":");
+        const candidate = separator >= 0 ? part.slice(separator + 1).trim() : part.trim();
+        return /[\u3400-\u9fff]/.test(candidate) ? candidate : "";
+      })
+      .filter(Boolean);
+    return [...new Set([...translated, ...details])].join("；");
+  }
 
   // 后端已经返回中文时直接保留；英文技术错误不原样甩给服主。
   if (/[\u3400-\u9fff]/.test(raw)) return raw;

@@ -22,12 +22,8 @@ test("operations page loads only the active tab", () => {
   assert.doesNotMatch(page, /Promise\.all\(\[loadConfig\(\), loadBackups\(\)/);
 });
 
-test("production and world settings use the new task-oriented structure", () => {
-  const production = source("../views/ProductionOrders.vue");
+test("world settings uses the new task-oriented structure", () => {
   const worldSettings = source("../views/WorldSettings.vue");
-  ["1. Bridge 状态", "2. 新建订单", "3. 订单记录"].forEach((label) => {
-    assert.match(production, new RegExp(label));
-  });
   assert.match(worldSettings, /commonSettingKeys/);
   assert.match(worldSettings, /settings-action-bar/);
 });

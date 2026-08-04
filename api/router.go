@@ -8,7 +8,7 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/zaigie/palworld-server-tool/internal/auth"
-	"github.com/zaigie/palworld-server-tool/internal/production"
+	"github.com/zaigie/palworld-server-tool/internal/qqbot"
 	"github.com/zaigie/palworld-server-tool/internal/worldsettings"
 )
 
@@ -82,14 +82,10 @@ func RegisterRouterWithSupervisor(r *gin.Engine, onConfigInitialized func(), pro
 }
 
 func RegisterRouterWithManagers(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager) {
-	registerRouter(r, onConfigInitialized, processManager, settingsManager, nil)
+	RegisterRouterWithAllManagers(r, onConfigInitialized, processManager, settingsManager, nil)
 }
 
-func RegisterRouterWithProductionManager(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager, productionManager *production.Manager) {
-	registerRouter(r, onConfigInitialized, processManager, settingsManager, productionManager)
-}
-
-func registerRouter(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager, productionManager *production.Manager) {
+func RegisterRouterWithAllManagers(r *gin.Engine, onConfigInitialized func(), processManager ServerProcessManager, settingsManager *worldsettings.Manager, qqBotManager *qqbot.Manager) {
 	r.Use(Logger(), gin.Recovery(), SecurityHeaders())
 
 	r.POST("/api/login", loginHandler)
@@ -129,6 +125,14 @@ func registerRouter(r *gin.Engine, onConfigInitialized func(), processManager Se
 	{
 		authGroup.GET("/logs", listRuntimeLogs)
 		authGroup.GET("/audit", listOperationAudits)
+		authGroup.GET("/qq-bot/config", getQQBotConfig)
+		authGroup.PUT("/qq-bot/config", putQQBotConfig(qqBotManager))
+		authGroup.GET("/qq-bot/status", getQQBotStatus(qqBotManager))
+		authGroup.POST("/qq-bot/test-connection", testQQBotConnection(qqBotManager))
+		authGroup.POST("/qq-bot/reconnect", reconnectQQBot(qqBotManager))
+		authGroup.POST("/qq-bot/test-message", testQQBotMessage(qqBotManager))
+		authGroup.GET("/qq-bot/groups", listQQBotGroups(qqBotManager))
+		authGroup.POST("/qq-bot/ai/test", testQQBotAI(qqBotManager))
 		authGroup.POST("/server/broadcast", publishBroadcast)
 		authGroup.POST("/server/shutdown", shutdownServer)
 		authGroup.GET("/server/process", getServerProcess(processManager))
@@ -141,16 +145,6 @@ func registerRouter(r *gin.Engine, onConfigInitialized func(), processManager Se
 		authGroup.POST("/server/update/check", checkServerUpdate(processManager))
 		authGroup.POST("/server/update/apply", applyServerUpdate(processManager))
 		authGroup.POST("/server/restart-schedule/preview", previewServerRestartSchedule)
-		authGroup.GET("/production/bridge", getProductionBridge(productionManager))
-		authGroup.POST("/production/bridge/recheck", recheckProductionBridge(productionManager))
-		authGroup.POST("/production/bridge/install", installProductionBridge(productionManager, false, false))
-		authGroup.POST("/production/bridge/repair", installProductionBridge(productionManager, true, false))
-		authGroup.POST("/production/bridge/disable", installProductionBridge(productionManager, false, true))
-		authGroup.GET("/production/catalog", getProductionCatalog(productionManager))
-		authGroup.POST("/production/preview", previewProductionOrder(productionManager))
-		authGroup.GET("/production/orders", listProductionOrders(productionManager))
-		authGroup.POST("/production/orders", createProductionOrder(productionManager))
-		authGroup.POST("/production/orders/:order_id/cancel", cancelProductionOrder(productionManager))
 		authGroup.GET("/base-camps/aliases", listBaseAliases)
 		authGroup.PUT("/base-camps/:base_id/alias", putBaseAlias)
 		authGroup.DELETE("/base-camps/:base_id/alias", deleteBaseAlias)
@@ -197,7 +191,7 @@ func registerRouter(r *gin.Engine, onConfigInitialized func(), processManager Se
 		authGroup.GET("/backup/:backup_id", downloadBackup)
 		authGroup.DELETE("/backup/:backup_id", deleteBackup)
 		authGroup.GET("/config", getConfig)
-		authGroup.PUT("/config", putConfigWithSupervisor(processManager))
+		authGroup.PUT("/config", putConfigWithManagers(processManager, qqBotManager))
 		authGroup.GET("/config/directories", listDirectories)
 		authGroup.POST("/config/test/save", testSaveConfig)
 		authGroup.POST("/config/test/rcon", testRconConfig)

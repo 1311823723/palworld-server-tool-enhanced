@@ -74,6 +74,13 @@ func TestPutPlayersOnlineTracksSessionAndTotalDuration(t *testing.T) {
 	if !reconnected.OnlineSince.Equal(base.Add(180*time.Second)) || reconnected.TotalOnlineSeconds != 90 {
 		t.Fatalf("unexpected reconnected state: %+v", reconnected.OnlinePlayer)
 	}
+	events, err := ListPlayerPresenceEvents(db, "1001", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 || !events[0].Online || events[1].Online || !events[2].Online {
+		t.Fatalf("unexpected player presence transitions: %#v", events)
+	}
 }
 
 func TestPutPlayersPreservesOnlineDurationFields(t *testing.T) {

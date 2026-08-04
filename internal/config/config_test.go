@@ -9,6 +9,62 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+func TestQQBotConfigurationIsLocalOnlyAndRedacted(t *testing.T) {
+	value := NormalizeQQBot(QQBotConfig{})
+	if value.OneBotWebSocketURL != "ws://127.0.0.1:3001" || !value.Permissions.RestartServer || value.Permissions.StartServer || value.Permissions.StopServer {
+		t.Fatalf("unexpected QQ bot defaults: %#v", value)
+	}
+	value.Enabled = true
+	if err := ValidateQQBot(value); err == nil {
+		t.Fatal("enabled QQ bot without token must be rejected")
+	}
+	value.OneBotToken = "onebot-secret"
+	if err := ValidateQQBot(value); err != nil {
+		t.Fatalf("valid loopback QQ bot configuration rejected: %v", err)
+	}
+	value.OneBotWebSocketURL = "ws://192.168.1.8:3001"
+	if err := ValidateQQBot(value); err == nil {
+		t.Fatal("non-loopback OneBot address must be rejected")
+	}
+	value.OneBotWebSocketURL = "ws://127.0.0.1:3001?access_token=leak"
+	if err := ValidateQQBot(value); err == nil {
+		t.Fatal("OneBot token in URL must be rejected")
+	}
+
+	settings := Default()
+	settings.QQBot.OneBotToken = "onebot-secret"
+	settings.QQBot.AI.APIKey = "deepseek-secret"
+	redacted := settings.Redacted()
+	if redacted.QQBot.OneBotToken != "" || redacted.QQBot.AI.APIKey != "" {
+		t.Fatal("QQ bot secrets must be removed from redacted configuration")
+	}
+}
+
+func TestQQBotSensitiveSettingsPersistInConfigDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := store.Config().QQBot
+	value.OneBotToken = "persisted-onebot-secret"
+	value.AI.APIKey = "persisted-deepseek-secret"
+	if err := store.SetQQBot(value); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if reopened.Config().QQBot.OneBotToken != "persisted-onebot-secret" || reopened.Config().QQBot.AI.APIKey != "persisted-deepseek-secret" {
+		t.Fatal("QQ bot secrets did not persist in config.db")
+	}
+}
+
 func TestServerProcessConfigurationRejectsUnsafeValues(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "PalServer.exe")
 	if err := os.WriteFile(executable, []byte("fixture"), 0600); err != nil {

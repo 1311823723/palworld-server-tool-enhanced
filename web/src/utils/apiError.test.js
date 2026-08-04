@@ -22,6 +22,15 @@ test("keeps Chinese errors and hides unknown English implementation details", ()
   assert.equal(translateBackendMessage("some internal library exploded", "读取失败"), "读取失败");
 });
 
+test("keeps useful Chinese detail inside a translated server error", () => {
+  const result = translateBackendMessage(
+    "PalServer health check failed: 世界设置恢复失败；timed out waiting for failed process to exit",
+  );
+  assert.match(result, /PalServer 启动检查失败/);
+  assert.match(result, /世界设置恢复失败/);
+  assert.match(result, /等待异常进程退出超时/);
+});
+
 test("provides timeout and offline fallbacks", () => {
   assert.match(apiErrorText(null, "失败", 0, "AbortError: timeout"), /8 秒/);
   assert.match(apiErrorText(null, "失败", 0, "Failed to fetch"), /无法连接 PST/);
