@@ -109,7 +109,8 @@ func deepSeekSystemPrompt(value config.QQBotConfig) string {
 4. 据点改名和 PalServer 启动、重启、停服只能调用对应工具，由 PST 生成二次确认；不得声称等待确认的操作已经执行。
 5. 不得执行或建议 Windows、Shell、RCON、世界设置修改、SteamCMD、备份恢复删除、公会或白名单修改。
 6. 不得索取或输出 Token、API Key、JWT、密码、Authorization、本机路径、IP 或玩家技术 ID。
-7. 回答保持简洁，准确保留工具返回的数量、时间、状态、错误和确认码。`
+7. 回答保持简洁，准确保留工具返回的数量、时间、状态、错误和确认码。
+8. 工具返回的帕鲁名、物品名等名称是系统提供的标准名称，直接使用，不要翻译或改写。`
 	if !persona.Enabled {
 		return base + "\n使用自然、简洁的中文回答，不使用角色口癖。"
 	}

@@ -5,11 +5,14 @@ import { NIcon } from "naive-ui";
 import {
   ArchiveOutlined,
   DashboardOutlined,
+  DnsOutlined,
+  EggOutlined,
   MapOutlined,
+  PetsOutlined,
   PublicRound,
   SupervisedUserCircleRound,
 } from "@vicons/material";
-import { Chatbubbles, GameController, Settings } from "@vicons/ionicons5";
+import { Chatbubbles, Settings } from "@vicons/ionicons5";
 import SnapshotStatus from "@/components/SnapshotStatus.vue";
 
 defineProps({
@@ -58,11 +61,11 @@ const navigation = computed(() => [
   { label: "总览", path: "/", icon: DashboardOutlined, public: true },
   { label: "玩家", path: "/players", icon: SupervisedUserCircleRound, public: true },
   { label: "地图", path: "/world-map", icon: MapOutlined, public: true },
-  { label: "帕鲁管理", path: "/pal-management", icon: GameController, public: true },
+  { label: "帕鲁管理", path: "/pal-management", icon: PetsOutlined, public: true },
   { label: "据点", path: "/base-camps", icon: PublicRound, public: true },
   { label: "库存", path: "/inventory", icon: ArchiveOutlined, public: false },
-  { label: "配种农场", path: "/breeding-farms", icon: GameController, public: false },
-  { label: "服务器运维", path: "/server-operations", icon: GameController, public: false },
+  { label: "配种农场", path: "/breeding-farms", icon: EggOutlined, public: false },
+  { label: "服务器运维", path: "/server-operations", icon: DnsOutlined, public: false },
   { label: "QQ 机器人", path: "/qq-bot", icon: Chatbubbles, public: false },
   { label: "世界设置", path: "/world-settings", icon: Settings, public: false },
 ].filter((item) => item.public || isAdmin.value));

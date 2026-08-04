@@ -116,10 +116,11 @@ func isAIWriteTool(name string) bool {
 
 func (m *Manager) executeAITool(conversation Conversation, name, arguments string) string {
 	var args struct {
-		Name     string `json:"name"`
-		Item     string `json:"item"`
-		BaseName string `json:"base_name"`
-		NewName  string `json:"new_name"`
+		Name       string `json:"name"`
+		Item       string `json:"item"`
+		BaseName   string `json:"base_name"`
+		PlayerName string `json:"player_name"`
+		NewName    string `json:"new_name"`
 	}
 	if arguments != "" && json.Unmarshal([]byte(arguments), &args) != nil {
 		return "工具参数无效。"
@@ -148,7 +149,22 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 		}
 	case "search_inventory":
 		if permissions.QueryInventory {
-			return m.inventoryText(args.Item)
+			baseID, playerUID := "", ""
+			if args.BaseName != "" {
+				base, err := m.findBase(args.BaseName)
+				if err != nil {
+					return err.Error()
+				}
+				baseID = base.BaseID
+			}
+			if args.PlayerName != "" {
+				uid, ok := m.findPlayerUID(args.PlayerName)
+				if !ok {
+					return fmt.Sprintf("没有找到玩家“%s”。", args.PlayerName)
+				}
+				playerUID = uid
+			}
+			return m.inventoryTextFiltered(args.Item, baseID, playerUID)
 		}
 	case "list_bases":
 		if permissions.QueryBases {
@@ -286,7 +302,7 @@ func deepSeekTools() []jsonObject {
 		tool("get_offline_players", "查询当前离线玩家、最后在线时间和累计时长", empty),
 		tool("get_guilds", "查询公会列表，包含等级、成员和据点数量", empty),
 		tool("get_player_presence", "查询玩家本次、累计和最近在线时间，支持在线和离线玩家", object(jsonObject{"name": stringProperty("玩家昵称")}, "name")),
-		tool("search_inventory", "按中文物品名称查询库存数量和位置", object(jsonObject{"item": stringProperty("物品名称")}, "item")),
+		tool("search_inventory", "按中文物品名称查询库存数量和位置，可用据点或玩家限定范围", object(jsonObject{"item": stringProperty("物品名称"), "base_name": stringProperty("据点名称（可选，只查该据点）"), "player_name": stringProperty("玩家昵称（可选，只查该玩家）")}, "item")),
 		tool("list_bases", "列出当前据点", empty),
 		tool("get_base_details", "查询指定据点的等级、坐标、公会、工作帕鲁数和饲料箱", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
 		tool("get_base_workers", "查询指定据点的全部工作帕鲁、等级和异常状态", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),

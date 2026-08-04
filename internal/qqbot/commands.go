@@ -13,6 +13,7 @@ import (
 
 	"github.com/zaigie/palworld-server-tool/internal/config"
 	"github.com/zaigie/palworld-server-tool/internal/database"
+	"github.com/zaigie/palworld-server-tool/internal/gamelabels"
 	"github.com/zaigie/palworld-server-tool/internal/logger"
 	"github.com/zaigie/palworld-server-tool/internal/supervisor"
 	"github.com/zaigie/palworld-server-tool/service"
@@ -283,7 +284,7 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 	if value.Permissions.QueryInventory {
 		item := inventoryQueryWord(text)
 		if item != "" {
-			return m.inventoryText(item), true
+			return m.inventoryTextForQuery(text), true
 		}
 	}
 	if compact == "据点" || compact == "据点列表" || compact == "有哪些据点" {
@@ -441,11 +442,19 @@ func (m *Manager) offlinePlayersText() string {
 }
 
 func (m *Manager) inventoryText(item string) string {
-	page, err := service.InventorySummary(m.db, service.InventoryQuery{Q: item, Page: 1, PageSize: 5})
+	return m.inventoryTextFiltered(item, "", "")
+}
+
+func (m *Manager) inventoryTextFiltered(item, baseID, playerUID string) string {
+	query := service.InventoryQuery{Q: item, Page: 1, PageSize: 5, BaseID: baseID, PlayerUID: playerUID}
+	page, err := service.InventorySummary(m.db, query)
 	if err != nil {
 		return "暂时无法读取库存快照。"
 	}
 	if len(page.Items) == 0 {
+		if baseID != "" || playerUID != "" {
+			return fmt.Sprintf("在指定位置没有找到“%s”。", item)
+		}
 		return fmt.Sprintf("库存中没有找到“%s”。", item)
 	}
 	lines := []string{"库存快照："}
@@ -458,7 +467,8 @@ func (m *Manager) inventoryText(item string) string {
 			name = current.ItemID
 		}
 		lines = append(lines, fmt.Sprintf("• %s：%d（%d 个位置）", name, current.TotalCount, current.LocationCount))
-		locations, _, _, locationErr := service.InventoryLocations(m.db, current.ItemID, service.InventoryQuery{Page: 1, PageSize: 3})
+		locQuery := service.InventoryQuery{Page: 1, PageSize: 3, BaseID: baseID, PlayerUID: playerUID}
+		locations, _, _, locationErr := service.InventoryLocations(m.db, current.ItemID, locQuery)
 		if locationErr == nil {
 			for index, location := range locations {
 				if index == 3 {
@@ -476,6 +486,62 @@ func (m *Manager) inventoryText(item string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// inventoryTextForQuery parses an optional "据点" or "玩家" qualifier in front of
+// the item query, e.g. "第一据点的石头还有多少" or "张三的石头还有多少".
+func (m *Manager) inventoryTextForQuery(text string) string {
+	item := inventoryQueryWord(text)
+	if item == "" {
+		return ""
+	}
+	for _, marker := range []string{"据点的", "据点里的"} {
+		if index := strings.Index(item, marker); index > 0 {
+			baseName := strings.TrimSpace(item[:index])
+			rest := strings.TrimSpace(item[index+len(marker):])
+			if rest == "" {
+				break
+			}
+			base, err := m.findBase(baseName)
+			if err != nil {
+				return err.Error()
+			}
+			return m.inventoryTextFiltered(rest, base.BaseID, "")
+		}
+	}
+	if index := strings.LastIndex(item, "的"); index > 0 {
+		playerName := strings.TrimSpace(item[:index])
+		rest := strings.TrimSpace(item[index+1:])
+		if rest != "" {
+			if playerUID, ok := m.findPlayerUID(playerName); ok {
+				return m.inventoryTextFiltered(rest, "", playerUID)
+			}
+			return fmt.Sprintf("没有找到玩家“%s”。", playerName)
+		}
+	}
+	return m.inventoryText(item)
+}
+
+func (m *Manager) findPlayerUID(name string) (string, bool) {
+	players, err := service.ListPlayers(m.db)
+	if err != nil {
+		return "", false
+	}
+	query := strings.ToLower(strings.TrimSpace(name))
+	if query == "" {
+		return "", false
+	}
+	for _, player := range players {
+		if strings.ToLower(strings.TrimSpace(displayPlayerName(player))) == query {
+			return player.PlayerUid, true
+		}
+	}
+	for _, player := range players {
+		if strings.Contains(strings.ToLower(displayPlayerName(player)), query) {
+			return player.PlayerUid, true
+		}
+	}
+	return "", false
 }
 
 func (m *Manager) basesText() string {
@@ -512,7 +578,7 @@ func (m *Manager) baseWorkersText(name string) string {
 		reasons := workerAbnormalReasons(worker)
 		palName := worker.Nickname
 		if palName == "" {
-			palName = worker.PalID
+			palName = gamelabels.PalChineseName(worker.PalID)
 		}
 		if palName == "" {
 			palName = "未命名帕鲁"
@@ -602,7 +668,7 @@ func (m *Manager) breedingFarmsText() string {
 					parentName = parent.PalName
 				}
 				if parentName == "" {
-					parentName = parent.PalID
+					parentName = gamelabels.PalChineseName(parent.PalID)
 				}
 				if parentName == "" {
 					parentName = "未知帕鲁"
