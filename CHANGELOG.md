@@ -2,6 +2,13 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.12] - 2026-08-04
+
+### Fixed
+
+- 修复 DeepSeek V4 多轮工具调用必然返回 HTTP 400 的问题。V4 默认开启 thinking 模式，带工具调用的 assistant 消息必须把 `reasoning_content` 原样回传，否则 DeepSeek 拒绝请求；现在会正确解析并回传该字段。
+- DeepSeek 请求失败时透传官方返回的具体错误信息，不再只显示 HTTP 状态码。
+
 ## [v0.14.11] - 2026-08-04
 
 ### Fixed

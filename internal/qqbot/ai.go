@@ -21,6 +21,11 @@ type deepSeekMessage struct {
 	Content    string             `json:"content"`
 	ToolCalls  []deepSeekToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string             `json:"tool_call_id,omitempty"`
+	// DeepSeek V4 默认开启 thinking 模式。带工具调用的 assistant 消息必须把
+	// reasoning_content 原样回传（即使为空字符串也不能省略），否则多轮请求
+	// 返回 HTTP 400 "The reasoning_content in the thinking mode must be passed
+	// back to the API"。用指针区分"未返回"和"返回了空字符串"。
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
 }
 
 type deepSeekToolCall struct {
@@ -213,6 +218,10 @@ func callDeepSeek(ctx context.Context, value config.QQBotAIConfig, messages []de
 		case http.StatusPaymentRequired, http.StatusTooManyRequests:
 			return result, errors.New("DeepSeek 额度不足或请求过于频繁")
 		default:
+			// 带上 DeepSeek 返回的具体错误信息（如参数校验失败原因），便于定位。
+			if result.Error != nil && strings.TrimSpace(result.Error.Message) != "" {
+				return result, fmt.Errorf("DeepSeek 请求失败（HTTP %d）: %s", response.StatusCode, result.Error.Message)
+			}
 			return result, fmt.Errorf("DeepSeek 请求失败（HTTP %d）", response.StatusCode)
 		}
 	}
