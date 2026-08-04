@@ -2,6 +2,12 @@
 
 本文件记录 `feature/windows-server-supervisor` 分支相对上游 PST 的增强内容。项目继续按照 Apache License 2.0 发布，并保留原作者归属。
 
+## [v0.14.21] - 2026-08-05
+
+### Fixed
+
+- 前端错误提示显示后端返回的具体原因（如 "save world: dial tcp ..."，"timed out waiting for PalServer to exit"），不再只显示"保存世界失败"等泛化翻译，便于定位世界设置应用失败的原因。
+
 ## [v0.14.20] - 2026-08-04
 
 ### Added

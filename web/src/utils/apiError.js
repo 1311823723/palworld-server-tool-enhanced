@@ -37,7 +37,7 @@ export function translateBackendMessage(value, fallback = "操作失败，请稍
       .map((part) => {
         const separator = part.indexOf(":");
         const candidate = separator >= 0 ? part.slice(separator + 1).trim() : part.trim();
-        return /[\u3400-\u9fff]/.test(candidate) ? candidate : "";
+        return candidate;
       })
       .filter(Boolean);
     return [...new Set([...translated, ...details])].join("；");
