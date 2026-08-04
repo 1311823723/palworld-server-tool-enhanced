@@ -122,35 +122,64 @@ func SetBaseAlias(db *bbolt.DB, baseID, value string, now time.Time) (database.B
 	}
 	var result database.BaseAliasOverview
 	err = db.Update(func(tx *bbolt.Tx) error {
-		snapshot, err := activeSnapshot(tx)
-		if err != nil {
-			return err
+		// 公会等数据源（SavSync）可能包含当前存档快照之外的据点。此时仍允许
+		// 保存别名，只是跳过基于快照的显示名重名校验。
+		var baseName string
+		snapshot, snapshotErr := activeSnapshot(tx)
+		if snapshotErr != nil && !errors.Is(snapshotErr, ErrSnapshotUnavailable) {
+			return snapshotErr
 		}
-		bases, err := listBucket[database.BaseCampSnapshot](snapshot.Bucket(basesBucket))
-		if err != nil {
-			return err
-		}
-		var current *database.BaseCampSnapshot
-		for index := range bases {
-			if bases[index].BaseID == baseID {
-				current = &bases[index]
-				break
-			}
-		}
-		if current == nil {
-			return ErrNoRecord
-		}
-		for index := range bases {
-			if bases[index].BaseID == baseID {
-				continue
-			}
-			_, displayName, err := resolveBaseDisplayNameTx(tx, bases[index].BaseID, bases[index].BaseName)
+		if snapshot != nil {
+			bases, err := listBucket[database.BaseCampSnapshot](snapshot.Bucket(basesBucket))
 			if err != nil {
 				return err
 			}
-			if strings.EqualFold(strings.TrimSpace(displayName), name) {
-				return fmt.Errorf("%w: 当前存档中已有名为“%s”的据点", ErrBaseAliasConflict, name)
+			current := -1
+			for index := range bases {
+				if bases[index].BaseID == baseID {
+					current = index
+					break
+				}
 			}
+			if current >= 0 {
+				baseName = bases[current].BaseName
+				for index := range bases {
+					if index == current {
+						continue
+					}
+					_, displayName, err := resolveBaseDisplayNameTx(tx, bases[index].BaseID, bases[index].BaseName)
+					if err != nil {
+						return err
+					}
+					if strings.EqualFold(strings.TrimSpace(displayName), name) {
+						return fmt.Errorf("%w: 当前存档中已有名为“%s”的据点", ErrBaseAliasConflict, name)
+					}
+				}
+			}
+		}
+		// 无论据点是否在当前快照中，别名表内的名称都不允许重复。
+		bucket, err := baseAliasBucket(tx)
+		if err != nil {
+			return err
+		}
+		conflict := false
+		if err := bucket.ForEach(func(key, data []byte) error {
+			if string(key) == baseID {
+				return nil
+			}
+			var existing database.BaseAlias
+			if err := json.Unmarshal(data, &existing); err != nil {
+				return err
+			}
+			if strings.EqualFold(strings.TrimSpace(existing.Name), name) {
+				conflict = true
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if conflict {
+			return fmt.Errorf("%w: 已存在名为“%s”的据点", ErrBaseAliasConflict, name)
 		}
 		if now.IsZero() {
 			now = time.Now().UTC()
@@ -160,14 +189,10 @@ func SetBaseAlias(db *bbolt.DB, baseID, value string, now time.Time) (database.B
 		if err != nil {
 			return err
 		}
-		bucket, err := baseAliasBucket(tx)
-		if err != nil {
-			return err
-		}
 		if err := bucket.Put([]byte(baseID), data); err != nil {
 			return err
 		}
-		result = database.BaseAliasOverview{BaseAlias: alias, Active: true, BaseName: current.BaseName, DisplayName: BaseDisplayName(baseID, current.BaseName, name)}
+		result = database.BaseAliasOverview{BaseAlias: alias, Active: true, BaseName: baseName, DisplayName: BaseDisplayName(baseID, baseName, name)}
 		return nil
 	})
 	return result, err

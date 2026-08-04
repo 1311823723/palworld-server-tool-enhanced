@@ -138,6 +138,10 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 		if permissions.QueryPlayers {
 			return m.offlinePlayersText()
 		}
+	case "get_guilds":
+		if permissions.QueryPlayers {
+			return m.guildsText()
+		}
 	case "get_player_presence":
 		if permissions.QueryPlayers {
 			return m.playerPresenceText(args.Name)
@@ -154,9 +158,17 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 		if permissions.QueryBases {
 			return m.baseWorkersText(args.BaseName)
 		}
+	case "get_base_details":
+		if permissions.QueryBases {
+			return m.baseDetailsText(args.BaseName)
+		}
 	case "get_breeding_alerts":
 		if permissions.QueryBreeding {
 			return m.breedingText()
+		}
+	case "get_breeding_farms":
+		if permissions.QueryBreeding {
+			return m.breedingFarmsText()
 		}
 	case "get_backup_status":
 		if permissions.QueryBackups {
@@ -272,11 +284,14 @@ func deepSeekTools() []jsonObject {
 		tool("get_server_status", "查询 PalServer 运行状态", empty),
 		tool("get_online_players", "查询当前在线玩家", empty),
 		tool("get_offline_players", "查询当前离线玩家、最后在线时间和累计时长", empty),
+		tool("get_guilds", "查询公会列表，包含等级、成员和据点数量", empty),
 		tool("get_player_presence", "查询玩家本次、累计和最近在线时间，支持在线和离线玩家", object(jsonObject{"name": stringProperty("玩家昵称")}, "name")),
 		tool("search_inventory", "按中文物品名称查询库存数量和位置", object(jsonObject{"item": stringProperty("物品名称")}, "item")),
 		tool("list_bases", "列出当前据点", empty),
+		tool("get_base_details", "查询指定据点的等级、坐标、公会、工作帕鲁数和饲料箱", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
 		tool("get_base_workers", "查询指定据点的全部工作帕鲁、等级和异常状态", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
 		tool("get_breeding_alerts", "查询最近配种产蛋提醒", empty),
+		tool("get_breeding_farms", "查询配种农场列表，包含亲本、蛋糕数量和蛋", empty),
 		tool("get_backup_status", "查询最近一次存档备份", empty),
 		tool("get_restart_schedule", "查询下次自动重启", empty),
 		tool("rename_base", "发起据点自定义名称修改，必须二次确认", object(jsonObject{"base_name": stringProperty("现有据点名称"), "new_name": stringProperty("新名称")}, "base_name", "new_name")),

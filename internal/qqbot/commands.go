@@ -245,6 +245,18 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		}
 		return m.breedingText(), true
 	}
+	if containsAny(compact, "配种农场", "农场列表", "农场详情") {
+		if !value.Permissions.QueryBreeding {
+			return "配种查询未开放。", true
+		}
+		return m.breedingFarmsText(), true
+	}
+	if containsAny(compact, "公会列表", "有哪些公会", "公会信息") {
+		if !value.Permissions.QueryPlayers {
+			return "玩家查询未开放。", true
+		}
+		return m.guildsText(), true
+	}
 	if strings.Contains(compact, "异常帕鲁") || strings.Contains(compact, "工作帕鲁") || strings.Contains(compact, "帕鲁列表") || strings.Contains(compact, "有哪些帕鲁") {
 		if !value.Permissions.QueryBases {
 			return "据点查询未开放。", true
@@ -280,16 +292,23 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		}
 		return m.basesText(), true
 	}
+	if strings.Contains(compact, "据点详情") {
+		if !value.Permissions.QueryBases {
+			return "据点查询未开放。", true
+		}
+		name := strings.TrimSpace(strings.ReplaceAll(compact, "据点详情", ""))
+		return m.baseDetailsText(name), true
+	}
 	return "", false
 }
 
 func commandHelp() string {
 	return "可用命令：\n" +
 		"• 服务器状态 / 现在谁在线 / 谁没在线\n" +
-		"• 查询 张三 在线时间\n" +
+		"• 查询 张三 在线时间 / 公会列表\n" +
 		"• 石头还有多少 / 石头在哪\n" +
-		"• 据点列表 / 第一据点有哪些帕鲁 / 第一据点异常帕鲁\n" +
-		"• 配种提醒 / 最近一次备份 / 下次自动重启\n" +
+		"• 据点列表 / 第一据点有哪些帕鲁 / 第一据点异常帕鲁 / 第一据点详情\n" +
+		"• 配种农场 / 配种提醒 / 最近一次备份 / 下次自动重启\n" +
 		"管理员还可发起：把旧基地改名为第一据点、启动服务器、重启服务器、关服。危险操作需在 60 秒内回复六位验证码。"
 }
 
@@ -549,6 +568,127 @@ func workerAbnormalReasons(worker database.BaseWorkerPal) []string {
 		}
 	}
 	return reasons
+}
+
+func (m *Manager) breedingFarmsText() string {
+	page, err := service.ListBreedingFarms(m.db, service.BreedingFarmQuery{Page: 1, PageSize: 20})
+	if err != nil || len(page.Items) == 0 {
+		return "当前没有可用的配种农场。"
+	}
+	lines := []string{fmt.Sprintf("共 %d 个配种农场：", len(page.Items))}
+	for _, farm := range page.Items {
+		name := farm.BaseDisplayName
+		if name == "" {
+			name = farm.BaseName
+		}
+		if name == "" {
+			name = "未命名据点"
+		}
+		cake := "?"
+		if farm.CakeCount != nil {
+			cake = fmt.Sprintf("%d", *farm.CakeCount)
+		}
+		egg := "?"
+		if farm.EggCount != nil {
+			egg = fmt.Sprintf("%d", *farm.EggCount)
+		}
+		line := fmt.Sprintf("• %s：蛋糕 %s，蛋 %s", name, cake, egg)
+		parents, _, parentErr := service.ListBreedingParents(m.db, farm.FarmID)
+		if parentErr == nil && len(parents) > 0 {
+			parentNames := make([]string, 0, len(parents))
+			for _, parent := range parents {
+				parentName := parent.Nickname
+				if parentName == "" {
+					parentName = parent.PalName
+				}
+				if parentName == "" {
+					parentName = parent.PalID
+				}
+				if parentName == "" {
+					parentName = "未知帕鲁"
+				}
+				parentNames = append(parentNames, fmt.Sprintf("%s Lv.%d", parentName, parent.Level))
+			}
+			line += "，亲本：" + strings.Join(parentNames, " / ")
+		}
+		lines = append(lines, line)
+		eggs, _, eggErr := service.ListBreedingEggs(m.db, farm.FarmID)
+		if eggErr == nil && len(eggs) > 0 {
+			eggParts := make([]string, 0, len(eggs))
+			for _, item := range eggs {
+				eggName := item.EggName
+				if eggName == "" {
+					eggName = "未知蛋"
+				}
+				ready := ""
+				if item.Ready {
+					ready = "（可孵化）"
+				}
+				eggParts = append(eggParts, fmt.Sprintf("%s×%d%s", eggName, item.Count, ready))
+			}
+			lines = append(lines, "  "+name+" 的蛋："+strings.Join(eggParts, "、"))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Manager) guildsText() string {
+	guilds, err := service.ListGuilds(m.db)
+	if err != nil {
+		return "暂时无法读取公会信息。"
+	}
+	if len(guilds) == 0 {
+		return "当前没有公会信息。"
+	}
+	lines := []string{fmt.Sprintf("共 %d 个公会：", len(guilds))}
+	for _, guild := range guilds {
+		name := guild.Name
+		if name == "" {
+			name = "未命名公会"
+		}
+		line := fmt.Sprintf("• %s（Lv.%d）：%d 名成员，%d 个据点", name, guild.BaseCampLevel, len(guild.Players), len(guild.BaseCamp))
+		members := make([]string, 0, len(guild.Players))
+		for _, player := range guild.Players {
+			if strings.TrimSpace(player.Nickname) != "" {
+				members = append(members, player.Nickname)
+			}
+		}
+		if len(members) > 0 {
+			line += "\n    成员：" + strings.Join(members, "、")
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Manager) baseDetailsText(name string) string {
+	base, err := m.findBase(name)
+	if err != nil {
+		return err.Error()
+	}
+	lines := []string{fmt.Sprintf("%s：", base.DisplayName)}
+	if base.BaseCampLevel > 0 {
+		lines = append(lines, fmt.Sprintf("等级：%d", base.BaseCampLevel))
+	}
+	if strings.TrimSpace(base.GuildName) != "" {
+		lines = append(lines, "公会："+base.GuildName)
+	}
+	lines = append(lines, fmt.Sprintf("坐标：X %.0f / Y %.0f / Z %.0f", base.Location.X, base.Location.Y, base.Location.Z))
+	workers, _, workerErr := service.ListBaseWorkers(m.db, base.BaseID)
+	workerCount := 0
+	if workerErr == nil {
+		workerCount = len(workers)
+	}
+	lines = append(lines, fmt.Sprintf("工作帕鲁：%d 只", workerCount))
+	feedBoxes, _, feedErr := service.FeedBoxes(m.db, base.BaseID)
+	if feedErr == nil && len(feedBoxes) > 0 {
+		var total int64
+		for _, box := range feedBoxes {
+			total += box.TotalCount
+		}
+		lines = append(lines, fmt.Sprintf("饲料箱：%d 个，共 %d 件", len(feedBoxes), total))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Manager) breedingText() string {
