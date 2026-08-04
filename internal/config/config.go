@@ -135,6 +135,20 @@ type QQBotAIConfig struct {
 	SendRedactedResults bool   `json:"send_redacted_results"`
 }
 
+const (
+	DeepSeekModelV4Flash = "deepseek-v4-flash"
+
+	QQBotPersonaRestrained  = "restrained"
+	QQBotPersonaLively      = "lively"
+	QQBotPersonaMischievous = "mischievous"
+)
+
+type QQBotPersonaConfig struct {
+	Enabled        bool   `json:"enabled"`
+	Style          string `json:"style"`
+	SeriousOnError bool   `json:"serious_on_error"`
+}
+
 type QQBotConfig struct {
 	Enabled            bool                    `json:"enabled"`
 	OneBotWebSocketURL string                  `json:"onebot_websocket_url"`
@@ -146,6 +160,7 @@ type QQBotConfig struct {
 	GroupRatePerMinute int                     `json:"group_rate_per_minute"`
 	Permissions        QQBotPermissionsConfig  `json:"permissions"`
 	Notifications      QQBotNotificationConfig `json:"notifications"`
+	Persona            QQBotPersonaConfig      `json:"persona"`
 	AI                 QQBotAIConfig           `json:"ai"`
 }
 
@@ -243,10 +258,15 @@ func Default() Config {
 		RestartServer:     true,
 	}
 	value.QQBot.AI.BaseURL = "https://api.deepseek.com"
-	value.QQBot.AI.Model = "deepseek-chat"
+	value.QQBot.AI.Model = DeepSeekModelV4Flash
 	value.QQBot.AI.TimeoutSeconds = 20
 	value.QQBot.AI.MaxToolCalls = 3
 	value.QQBot.AI.SendRedactedResults = true
+	value.QQBot.Persona = QQBotPersonaConfig{
+		Enabled:        true,
+		Style:          QQBotPersonaLively,
+		SeriousOnError: true,
+	}
 	return value
 }
 
@@ -478,14 +498,21 @@ func NormalizeQQBot(value QQBotConfig) QQBotConfig {
 	if strings.TrimSpace(value.AI.BaseURL) == "" {
 		value.AI.BaseURL = defaults.AI.BaseURL
 	}
-	if strings.TrimSpace(value.AI.Model) == "" {
-		value.AI.Model = defaults.AI.Model
-	}
+	// DeepSeek retired the legacy deepseek-chat/deepseek-reasoner aliases on
+	// 2026-07-24. Keep one fixed model so persisted legacy settings migrate
+	// without requiring the administrator to re-enter the API key.
+	value.AI.Model = DeepSeekModelV4Flash
 	if value.AI.TimeoutSeconds == 0 {
 		value.AI.TimeoutSeconds = defaults.AI.TimeoutSeconds
 	}
 	if value.AI.MaxToolCalls == 0 {
 		value.AI.MaxToolCalls = defaults.AI.MaxToolCalls
+	}
+	// Configurations saved before persona support have no style field. Use that
+	// as the migration marker so the safe defaults are applied once, while a
+	// later explicit "disabled" choice remains intact.
+	if strings.TrimSpace(value.Persona.Style) == "" {
+		value.Persona = defaults.Persona
 	}
 	if value.AllowedGroupIDs == nil {
 		value.AllowedGroupIDs = []string{}
@@ -553,8 +580,16 @@ func ValidateQQBot(value QQBotConfig) error {
 			return errors.New("DeepSeek 地址只允许使用 https://api.deepseek.com")
 		}
 	}
+	if value.AI.Model != DeepSeekModelV4Flash {
+		return errors.New("DeepSeek 当前只支持 deepseek-v4-flash")
+	}
 	if value.AI.TimeoutSeconds < 1 || value.AI.TimeoutSeconds > 120 || value.AI.MaxToolCalls < 1 || value.AI.MaxToolCalls > 5 {
 		return errors.New("DeepSeek 超时或最大工具调用次数超出允许范围")
+	}
+	switch value.Persona.Style {
+	case QQBotPersonaRestrained, QQBotPersonaLively, QQBotPersonaMischievous:
+	default:
+		return errors.New("QQ 机器人回复风格不受支持")
 	}
 	return nil
 }

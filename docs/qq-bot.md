@@ -54,12 +54,18 @@ PST 可以主动连接同一台 Windows 电脑上的 NapCatQQ，通过 OneBot 11
 
 ## 4. 可选 DeepSeek
 
-DeepSeek 用于理解基础规则没有覆盖的自然语言说法，不是命令执行器。启用后填写 DeepSeek 官方 API Key 和模型，点击“测试 DeepSeek”。
+DeepSeek 用于理解基础规则没有覆盖的自然语言说法，不是命令执行器。启用后填写 DeepSeek 官方 API Key，点击“测试 DeepSeek”。PST 固定使用 `deepseek-v4-flash`；旧版保存的 `deepseek-chat` 或 `deepseek-reasoner` 会在升级后自动迁移，不需要重新填写 API Key。
 
 - 只有 DeepSeek API Key 会发送给 `https://api.deepseek.com`。
 - OneBot Token、PST JWT、RCON/REST 密码、IP、本机路径和玩家技术 ID不会进入 AI 请求。
 - 模型只能从 PST 注册的固定工具中选择；据点改名和 PalServer 控制仍必须二次确认。
 - API Key 无效、额度不足、超时或返回非法工具时，PST 会继续使用基础命令。
+
+## 5. 捣蛋喵回复风格
+
+“回复风格”对固定命令、主动通知和 DeepSeek 同时生效，不配置 DeepSeek 也可以使用。管理员可以关闭人设，或在“克制、活泼、调皮”三档猫味中选择；默认使用“活泼”，并在服务器崩溃、备份失败和操作失败时自动切换为严肃语气。
+
+PST 不开放完整系统提示词编辑。真实性、安全边界、管理员权限和二次确认规则始终由后端固定，角色文案不会改写数量、时间、状态、错误或六位确认码。
 
 ## 5. 主动通知
 

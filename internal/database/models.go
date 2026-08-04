@@ -201,6 +201,7 @@ type InventoryLocation struct {
 	LocationID           string `json:"location_id"`
 	ItemID               string `json:"item_id"`
 	ItemName             string `json:"item_name"`
+	ItemDisplayName      string `json:"item_display_name,omitempty"`
 	Count                int64  `json:"count"`
 	SlotIndex            int    `json:"slot_index"`
 	SourceType           string `json:"source_type"`
@@ -218,15 +219,16 @@ type InventoryLocation struct {
 }
 
 type InventoryAggregate struct {
-	ItemID         string `json:"item_id"`
-	ItemName       string `json:"item_name"`
-	TotalCount     int64  `json:"total_count"`
-	PlayerTotal    int64  `json:"player_total"`
-	BaseTotal      int64  `json:"base_total"`
-	PlayerCount    int    `json:"player_count"`
-	BaseCount      int    `json:"base_count"`
-	ContainerCount int    `json:"container_count"`
-	LocationCount  int    `json:"location_count"`
+	ItemID          string `json:"item_id"`
+	ItemName        string `json:"item_name"`
+	ItemDisplayName string `json:"item_display_name,omitempty"`
+	TotalCount      int64  `json:"total_count"`
+	PlayerTotal     int64  `json:"player_total"`
+	BaseTotal       int64  `json:"base_total"`
+	PlayerCount     int    `json:"player_count"`
+	BaseCount       int    `json:"base_count"`
+	ContainerCount  int    `json:"container_count"`
+	LocationCount   int    `json:"location_count"`
 }
 
 type BaseCampOverview struct {
@@ -361,10 +363,13 @@ type PlayerProgress struct {
 }
 
 type BaseCamp struct {
-	Id        string  `json:"id"`
-	Area      float64 `json:"area"`
-	LocationX float64 `json:"location_x"`
-	LocationY float64 `json:"location_y"`
+	Id          string  `json:"id"`
+	BaseName    string  `json:"base_name,omitempty"`
+	CustomName  string  `json:"custom_name,omitempty"`
+	DisplayName string  `json:"display_name,omitempty"`
+	Area        float64 `json:"area"`
+	LocationX   float64 `json:"location_x"`
+	LocationY   float64 `json:"location_y"`
 }
 
 type Guild struct {

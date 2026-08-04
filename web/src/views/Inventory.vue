@@ -28,7 +28,7 @@ const locationCache = new Map();
 
 const localeItems = computed(() => itemsMap.zh || []);
 const itemByID = computed(() => Object.fromEntries(localeItems.value.flatMap((item) => [[item.key.toLowerCase(), item], [item.id.toLowerCase(), item]])));
-const labelFor = (id, fallback = "") => itemByID.value[id?.toLowerCase()]?.name || fallback || id;
+const labelFor = (id, fallback = "", displayName = "") => displayName || itemByID.value[id?.toLowerCase()]?.name || fallback || id;
 const iconModules = import.meta.glob("/src/assets/items/*.webp", { eager: true, query: "?url", import: "default" });
 const iconFor = (id) => iconModules[`/src/assets/items/${String(id || "").toLowerCase()}.webp`] || "";
 const sourceLabel = (source) => ({ player_common: "玩家背包", player_drop: "玩家掉落栏", player_essential: "玩家关键物品", player_food: "玩家食物栏", player_equipment: "玩家装备", base_container: "据点容器", base_storage: "据点容器", base_feed_box: "据点饲料箱", breeding_farm_cake_box: "配种农场蛋糕箱" }[source] || source || "未知来源");
@@ -59,7 +59,7 @@ async function openLocations(item) {
 }
 
 const columns = computed(() => [
-  { title: "物品", key: "item_id", render: (row) => h("div", { class: "item-cell", style: "display:flex;align-items:center;gap:12px" }, [iconFor(row.item_id) ? h("img", { src: iconFor(row.item_id), alt: "", class: "item-icon", style: "width:42px;height:42px;object-fit:contain;border-radius:8px" }) : null, h("div", [h("strong", labelFor(row.item_id, row.item_name)), h("small", { style: "display:block;opacity:.5;margin-top:3px" }, row.item_id)])]) },
+  { title: "物品", key: "item_id", render: (row) => h("div", { class: "item-cell", style: "display:flex;align-items:center;gap:12px" }, [iconFor(row.item_id) ? h("img", { src: iconFor(row.item_id), alt: "", class: "item-icon", style: "width:42px;height:42px;object-fit:contain;border-radius:8px" }) : null, h("div", [h("strong", labelFor(row.item_id, row.item_name, row.item_display_name)), h("small", { style: "display:block;opacity:.5;margin-top:3px" }, row.item_id)])]) },
   { title: "总数量", key: "total_count", sorter: "default", render: (row) => Number(row.total_count).toLocaleString() },
   { title: "玩家 / 据点", key: "split", render: (row) => `${Number(row.player_total).toLocaleString()} / ${Number(row.base_total).toLocaleString()}` },
   { title: "位置", key: "locations", render: (row) => h(NTag, { size: "small", round: true }, { default: () => `${row.location_count} 格 · ${row.container_count} 容器` }) },
@@ -88,7 +88,7 @@ onMounted(loadSummary);
           <n-card v-for="item in items" :key="item.item_id" size="small">
             <div class="item-cell">
               <img v-if="iconFor(item.item_id)" :src="iconFor(item.item_id)" alt="" class="item-icon" />
-              <div><strong>{{ labelFor(item.item_id, item.item_name) }}</strong><small>{{ item.item_id }}</small></div>
+              <div><strong>{{ labelFor(item.item_id, item.item_name, item.item_display_name) }}</strong><small>{{ item.item_id }}</small></div>
             </div>
             <div class="count-row"><strong>{{ Number(item.total_count).toLocaleString() }}</strong><span>玩家 {{ item.player_total }} · 据点 {{ item.base_total }}</span></div>
             <n-button block secondary @click="openLocations(item)">查看 {{ item.location_count }} 个位置</n-button>
@@ -100,7 +100,7 @@ onMounted(loadSummary);
     </n-card>
 
     <n-drawer v-model:show="showLocations" :width="isMobile ? '100%' : 620" placement="right">
-      <n-drawer-content :title="selectedItem ? `${labelFor(selectedItem.item_id, selectedItem.item_name)} 的位置` : '库存位置'" closable>
+      <n-drawer-content :title="selectedItem ? `${labelFor(selectedItem.item_id, selectedItem.item_name, selectedItem.item_display_name)} 的位置` : '库存位置'" closable>
         <n-spin :show="locationsLoading">
           <n-list bordered>
             <n-list-item v-for="location in locations" :key="location.location_id">

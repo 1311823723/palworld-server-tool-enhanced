@@ -1,7 +1,10 @@
 <script setup>
 import { PersonSearchSharp } from "@vicons/material";
+import { useDialog, useMessage } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import ApiService from "@/service/api";
+import { baseDisplayName, validateBaseAliasName } from "@/utils/baseAliases.js";
 import whitelistStore from "@/stores/model/whitelist";
 
 const LANDSCAPE = {
@@ -18,6 +21,9 @@ const props = defineProps({
 
 const emit = defineEmits(["view-player"]);
 const { t } = useI18n();
+const api = new ApiService();
+const message = useMessage();
+const dialog = useDialog();
 const quickMapTile = "map/tiles/0/0/0.png";
 const activeBaseIndex = ref(null);
 const isDarkMode = ref(
@@ -26,7 +32,16 @@ const isDarkMode = ref(
 
 const guildInfo = computed(() => props.guildInfo || {});
 const members = computed(() => guildInfo.value.players || []);
-const bases = computed(() => guildInfo.value.base_camp || []);
+const baseOverrides = ref({});
+const bases = computed(() => (guildInfo.value.base_camp || []).map((base, index) => {
+  const merged = { ...base, ...(baseOverrides.value[base.id] || {}) };
+  return { ...merged, display_name: baseDisplayName(merged, index) };
+}));
+const isAdmin = computed(() => Boolean(localStorage.getItem("palworld_token")));
+const editingBaseID = ref("");
+const aliasName = ref("");
+const aliasSaving = ref(false);
+const aliasError = computed(() => validateBaseAliasName(aliasName.value, editingBaseID.value, bases.value));
 const guildMaster = computed(
   () =>
     members.value.find(
@@ -93,10 +108,62 @@ const focusBase = (index) => {
     ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
 
+const beginRenameBase = (base, index) => {
+  editingBaseID.value = base.id || "";
+  aliasName.value = base.custom_name || baseDisplayName(base, index);
+};
+
+const cancelRenameBase = () => {
+  editingBaseID.value = "";
+  aliasName.value = "";
+};
+
+const saveBaseAlias = async () => {
+  if (aliasSaving.value || aliasError.value || !editingBaseID.value) return;
+  aliasSaving.value = true;
+  const baseID = editingBaseID.value;
+  const { data, statusCode } = await api.updateBaseAlias(baseID, { name: aliasName.value.trim() });
+  aliasSaving.value = false;
+  if (statusCode.value !== 200) {
+    message.error(data.value?.error || "据点名称保存失败");
+    return;
+  }
+  baseOverrides.value = {
+    ...baseOverrides.value,
+    [baseID]: { custom_name: data.value?.item?.name || aliasName.value.trim(), display_name: data.value?.item?.display_name || aliasName.value.trim() },
+  };
+  cancelRenameBase();
+  message.success("据点名称已更新");
+};
+
+const resetBaseAlias = (base, index) => {
+  dialog.warning({
+    title: "重置据点名称",
+    content: `确定把“${baseDisplayName(base, index)}”恢复为“据点 ${index + 1}”吗？`,
+    positiveText: "重置",
+    negativeText: "取消",
+    onPositiveClick: async () => {
+      const { data, statusCode } = await api.deleteBaseAlias(base.id);
+      if (statusCode.value !== 200) {
+        message.error(data.value?.error || "据点名称重置失败");
+        return;
+      }
+      baseOverrides.value = {
+        ...baseOverrides.value,
+        [base.id]: { custom_name: "", display_name: `据点 ${index + 1}` },
+      };
+      cancelRenameBase();
+      message.success("已恢复默认据点名称");
+    },
+  });
+};
+
 watch(
   () => guildInfo.value.admin_player_uid,
   () => {
     activeBaseIndex.value = null;
+    baseOverrides.value = {};
+    cancelRenameBase();
   },
 );
 </script>
@@ -234,12 +301,9 @@ watch(
               :class="{ 'is-active': activeBaseIndex === marker.index }"
               :style="{ left: `${marker.left}%`, top: `${marker.top}%` }"
               :aria-label="
-                $t('guild.baseMarker', {
-                  index: marker.index + 1,
-                  x: formatCoordinate(marker.location_x),
-                  y: formatCoordinate(marker.location_y),
-                })
+                `${baseDisplayName(marker, marker.index)}，X ${formatCoordinate(marker.location_x)}，Y ${formatCoordinate(marker.location_y)}`
               "
+              :title="baseDisplayName(marker, marker.index)"
               @click="focusBase(marker.index)"
             >
               {{ marker.index + 1 }}
@@ -259,9 +323,10 @@ watch(
             <div class="base-card-index">{{ index + 1 }}</div>
             <div class="base-card-content">
               <div class="base-card-title">
-                <strong>{{
-                  $t("guild.baseLabel", { index: index + 1 })
-                }}</strong>
+                <div class="base-name-line">
+                  <strong>{{ baseDisplayName(base, index) }}</strong>
+                  <n-tag v-if="base.custom_name" size="small" type="success" :bordered="false" round>自定义</n-tag>
+                </div>
                 <span
                   >{{ $t("guild.range") }} {{ formatRange(base.area) }}</span
                 >
@@ -271,6 +336,34 @@ watch(
                 <span>Y {{ formatCoordinate(base.location_y) }}</span>
               </div>
               <span class="base-id">ID {{ base.id || "—" }}</span>
+              <div
+                v-if="editingBaseID === base.id"
+                class="base-alias-editor"
+              >
+                <n-input
+                  v-model:value="aliasName"
+                  maxlength="40"
+                  show-count
+                  size="small"
+                  placeholder="例如：北境矿场"
+                  @keyup.enter="saveBaseAlias"
+                />
+                <span v-if="aliasError" class="alias-error">{{ aliasError }}</span>
+                <div class="alias-editor-actions">
+                  <n-button size="small" @click="cancelRenameBase">取消</n-button>
+                  <n-button
+                    size="small"
+                    type="primary"
+                    :loading="aliasSaving"
+                    :disabled="Boolean(aliasError)"
+                    @click="saveBaseAlias"
+                  >保存</n-button>
+                </div>
+              </div>
+              <div v-else-if="isAdmin && base.id" class="base-alias-actions">
+                <n-button size="tiny" secondary @click="beginRenameBase(base, index)">重命名</n-button>
+                <n-button v-if="base.custom_name" size="tiny" text type="error" @click="resetBaseAlias(base, index)">重置</n-button>
+              </div>
             </div>
           </article>
         </div>
@@ -623,6 +716,19 @@ watch(
   font-size: 15px;
 }
 
+.base-name-line {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.base-name-line strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .base-card-title span {
   color: var(--muted);
   font-size: 11px;
@@ -636,6 +742,30 @@ watch(
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.base-alias-actions,
+.alias-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.base-alias-editor {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+
+.alias-error {
+  color: #d03050;
+  font-size: 11px;
 }
 
 .guild-overview.is-compact {

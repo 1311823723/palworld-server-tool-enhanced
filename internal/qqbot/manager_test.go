@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/zaigie/palworld-server-tool/internal/config"
+	"github.com/zaigie/palworld-server-tool/internal/database"
 	"github.com/zaigie/palworld-server-tool/internal/supervisor"
+	"github.com/zaigie/palworld-server-tool/service"
 	"go.etcd.io/bbolt"
 	"golang.org/x/net/websocket"
 )
@@ -85,6 +87,42 @@ func TestAIRedactionRemovesInfrastructureAndIdentifiers(t *testing.T) {
 	}
 }
 
+func TestPersonaKeepsFactsAndUsesSeriousToneForErrors(t *testing.T) {
+	value := config.Default().QQBot
+	manager := &Manager{config: value}
+	response := manager.personaReply("服务器状态：运行中\n在线玩家：6 人")
+	if !strings.Contains(response, "哼哼，本喵已经查到了") || !strings.Contains(response, "在线玩家：6 人") {
+		t.Fatalf("lively persona response = %q", response)
+	}
+
+	response = manager.personaReply("PalServer 意外退出，最近错误：进程崩溃")
+	if !strings.Contains(response, "事情好像有点大") || !strings.Contains(response, "最近错误：进程崩溃") {
+		t.Fatalf("serious persona response = %q", response)
+	}
+
+	value.Persona.Enabled = false
+	manager.config = value
+	plain := "服务器状态：运行中"
+	if response = manager.personaReply(plain); response != plain {
+		t.Fatalf("disabled persona changed response: %q", response)
+	}
+}
+
+func TestDeepSeekPersonaPromptKeepsSafetyRules(t *testing.T) {
+	value := config.Default().QQBot
+	prompt := deepSeekSystemPrompt(value)
+	for _, required := range []string{"捣蛋喵", "不得补全、推测或编造", "未调用工具时", "由 PST 生成二次确认", "不要每句话都加“喵”"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("DeepSeek persona prompt missing %q: %s", required, prompt)
+		}
+	}
+	value.Persona.Enabled = false
+	plainPrompt := deepSeekSystemPrompt(value)
+	if strings.Contains(plainPrompt, "来自《幻兽帕鲁》世界的捣蛋喵") || !strings.Contains(plainPrompt, "不使用角色口癖") {
+		t.Fatalf("disabled persona prompt = %s", plainPrompt)
+	}
+}
+
 func TestMessageParsingRequiresBotMention(t *testing.T) {
 	segments := []any{
 		map[string]any{"type": "at", "data": map[string]any{"qq": "90000000000000000001"}},
@@ -97,6 +135,29 @@ func TestMessageParsingRequiresBotMention(t *testing.T) {
 	_, mentioned = messageText("服务器状态", "服务器状态", "90000000000000000001")
 	if mentioned {
 		t.Fatal("plain group message must not count as a mention")
+	}
+}
+
+func TestInventoryCommandMatchesAndRepliesWithChineseItemName(t *testing.T) {
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "pst.db"), 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = service.PutSnapshot(db, database.SnapshotPayload{
+		Metadata: database.SnapshotMetadata{SnapshotTime: time.Now().UTC(), SaveFileTime: time.Now().UTC()},
+		InventorySlots: []database.InventoryLocation{{
+			LocationID: "container-a:0", ItemID: "stone", ItemName: "Stone", Count: 128,
+			ContainerID: "container-a", ContainerName: "金属箱", SourceType: "base_storage",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{db: db}
+	response := manager.inventoryText("石头")
+	if !strings.Contains(response, "石头：128") || strings.Contains(response, "没有找到") {
+		t.Fatalf("Chinese inventory response = %q", response)
 	}
 }
 

@@ -45,7 +45,7 @@ func TestQQBotAPIsRequireAdministratorAndNeverReturnSecrets(t *testing.T) {
 		t.Fatalf("QQ config status = %d: %s", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	if strings.Contains(body, "never-return") || !strings.Contains(body, `"token_is_set":true`) || !strings.Contains(body, `"api_key_is_set":true`) {
+	if strings.Contains(body, "never-return") || !strings.Contains(body, `"token_is_set":true`) || !strings.Contains(body, `"api_key_is_set":true`) || !strings.Contains(body, `"persona":{"enabled":true,"style":"lively","serious_on_error":true}`) {
 		t.Fatalf("QQ config response did not redact secrets correctly: %s", body)
 	}
 }

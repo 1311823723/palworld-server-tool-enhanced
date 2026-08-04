@@ -58,7 +58,7 @@ func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, t
 		return "", errors.New("DeepSeek 未启用")
 	}
 	messages := []deepSeekMessage{
-		{Role: "system", Content: "你是 PST 幻兽帕鲁专服助手。只通过给定工具理解用户意图，不得编造数据，不得执行或建议 Windows、Shell、RCON、配置修改、SteamCMD、备份恢复删除、公会或白名单修改。涉及据点改名和 PalServer 启动、重启、停服时只能调用对应工具，由 PST 生成二次确认。回答使用简洁中文。"},
+		{Role: "system", Content: deepSeekSystemPrompt(value)},
 		{Role: "user", Content: redactForAI(text)},
 	}
 	response, err := callDeepSeek(ctx, value.AI, messages, deepSeekTools())
@@ -172,6 +172,7 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 }
 
 func callDeepSeek(ctx context.Context, value config.QQBotAIConfig, messages []deepSeekMessage, tools []jsonObject) (deepSeekResponse, error) {
+	value.Model = config.DeepSeekModelV4Flash
 	endpoint := strings.TrimRight(value.BaseURL, "/") + "/chat/completions"
 	payload := jsonObject{"model": value.Model, "messages": messages, "temperature": 0.1}
 	if len(tools) > 0 {
@@ -219,6 +220,7 @@ func callDeepSeek(ctx context.Context, value config.QQBotAIConfig, messages []de
 }
 
 func TestAI(ctx context.Context, value config.QQBotAIConfig) (AIConnectionTest, error) {
+	value.Model = config.DeepSeekModelV4Flash
 	if !value.Enabled || strings.TrimSpace(value.APIKey) == "" {
 		return AIConnectionTest{}, errors.New("请先启用 DeepSeek 并设置 API Key")
 	}

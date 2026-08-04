@@ -390,7 +390,10 @@ func (m *Manager) inventoryText(item string) string {
 	}
 	lines := []string{"库存快照："}
 	for _, current := range page.Items {
-		name := current.ItemName
+		name := current.ItemDisplayName
+		if name == "" {
+			name = current.ItemName
+		}
 		if name == "" {
 			name = current.ItemID
 		}
