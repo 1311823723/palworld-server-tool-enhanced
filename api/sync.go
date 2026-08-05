@@ -39,5 +39,5 @@ func syncData(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"error": "invalid from"})
+	c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid from"})
 }

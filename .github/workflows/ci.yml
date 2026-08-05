@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build assets and run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source and map LFS objects
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Verify map tiles
+        run: python3 script/verify_map.py
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build web frontend
+        shell: bash
+        run: |
+          npm install --global pnpm@8.14.0
+          pushd web
+          pnpm install --frozen-lockfile
+          pnpm build
+          popd
+
+      - name: Build pal-conf frontend
+        shell: bash
+        run: |
+          npm install --global pnpm@10.12.3
+          pushd pal-conf
+          pnpm install --frozen-lockfile
+          pnpm build
+          popd
+          mv pal-conf/dist/assets/* assets/
+          mv pal-conf/dist/index.html ./pal-conf.html
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run sav_cli tests
+        run: python -m unittest discover -s sav_cli/tests -p "test_*.py"
+
+      - name: Run web tests
+        working-directory: web
+        run: pnpm test
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Go tests with race detector
+        run: go test -race ./...

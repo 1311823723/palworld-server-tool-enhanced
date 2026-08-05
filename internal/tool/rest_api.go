@@ -2,6 +2,7 @@ package tool
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,10 +33,14 @@ func callApi(method string, api string, param []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	req, _ := http.NewRequest(method, api, bytes.NewReader(param))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, api, bytes.NewReader(param))
+	if err != nil {
+		return nil, err
+	}
 	req.SetBasicAuth(user, pass)
 
-	client.Timeout = time.Duration(timeout) * time.Second
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

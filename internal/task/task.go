@@ -23,6 +23,7 @@ import (
 
 var s gocron.Scheduler
 var schedulerMu sync.Mutex
+var savSyncMu sync.Mutex
 
 func BackupTask(db *bbolt.DB) {
 	logger.Info("Scheduling backup...\n")
@@ -173,8 +174,17 @@ func CheckAndKickPlayers(db *bbolt.DB, players []database.OnlinePlayer) {
 }
 
 func SavSync() {
+	savSyncOnce(func() error {
+		return tool.Decode(config.Current().Save.Path)
+	})
+}
+
+func savSyncOnce(decode func() error) {
+	savSyncMu.Lock()
+	defer savSyncMu.Unlock()
+
 	logger.Info("Save sync started\n")
-	err := tool.Decode(config.Current().Save.Path)
+	err := decode()
 	if err != nil {
 		if statusErr := service.MarkBreedingParserFailed(database.GetDB(), time.Now().UTC()); statusErr != nil {
 			logger.Errorf("Failed to persist save parser status: %v\n", statusErr)
