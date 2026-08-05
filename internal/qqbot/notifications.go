@@ -32,13 +32,13 @@ func (m *Manager) monitorNotifications(ctx context.Context) {
 		settings := m.Config().Notifications
 		if m.process != nil {
 			current := m.process.ProcessStatus()
-			if settings.Enabled && settings.ServerCrash && previous.Running && !current.Running && current.DesiredRunning && current.LastExitAt != nil {
+			if settings.Enabled && settings.ServerCrash && shouldNotifyServerCrash(previous, current) {
 				m.Notify("server-crash:"+current.LastExitAt.UTC().Format(time.RFC3339Nano), fmt.Sprintf("PalServer 意外退出，退出码 %d。崩溃守护将按配置处理。", current.LastExitCode))
 			}
-			if settings.Enabled && settings.WatchdogRestart && current.RestartCount > previous.RestartCount {
+			if settings.Enabled && settings.WatchdogRestart && shouldNotifyWatchdogRestart(previous, current) {
 				m.Notify(fmt.Sprintf("watchdog-restart:%d", current.RestartCount), fmt.Sprintf("崩溃守护已自动重启 PalServer（本次运行累计 %d 次）。", current.RestartCount))
 			}
-			if settings.Enabled && settings.ScheduledRestart && current.LastScheduledRestartAt != nil && (previous.LastScheduledRestartAt == nil || !current.LastScheduledRestartAt.Equal(*previous.LastScheduledRestartAt)) {
+			if settings.Enabled && settings.ScheduledRestart && shouldNotifyScheduledRestart(previous, current) {
 				m.Notify("scheduled-restart:"+current.LastScheduledRestartAt.UTC().Format(time.RFC3339Nano), "计划重启已经开始，PST 正在保存世界并平滑重启 PalServer。")
 			}
 			previous = current
@@ -60,6 +60,18 @@ func (m *Manager) monitorNotifications(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func shouldNotifyServerCrash(previous, current supervisor.Status) bool {
+	return previous.Running && !current.Running && current.DesiredRunning && current.LastExitAt != nil && !current.LastExitPlanned
+}
+
+func shouldNotifyWatchdogRestart(previous, current supervisor.Status) bool {
+	return current.RestartCount > previous.RestartCount && !current.LastExitPlanned
+}
+
+func shouldNotifyScheduledRestart(previous, current supervisor.Status) bool {
+	return current.LastScheduledRestartAt != nil && (previous.LastScheduledRestartAt == nil || !current.LastScheduledRestartAt.Equal(*previous.LastScheduledRestartAt))
 }
 
 func latestBackup(db *bbolt.DB) (database.Backup, bool) {

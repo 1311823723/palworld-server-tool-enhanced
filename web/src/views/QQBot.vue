@@ -394,15 +394,15 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
             </div>
           </n-card>
 
-          <n-card title=”5. 回复风格” size=”small”>
-            <div class=”section-toggle”><div><b>使用帕鲁人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value=”form.persona.enabled” /></div>
-            <n-collapse-transition :show=”form.persona.enabled”>
-              <div class=”form-grid persona-form”>
-                <n-form-item label=”角色”>
-                  <n-select v-model:value=”form.persona.character” :options=”personaCharacterOptions” />
+          <n-card title="5. 回复风格" size="small">
+            <div class="section-toggle"><div><b>使用帕鲁人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value="form.persona.enabled" /></div>
+            <n-collapse-transition :show="form.persona.enabled">
+              <div class="form-grid persona-form">
+                <n-form-item label="角色">
+                  <n-select v-model:value="form.persona.character" :options="personaCharacterOptions" />
                 </n-form-item>
-                <n-form-item label=”语气”>
-                  <n-select v-model:value=”form.persona.style” :options=”personaStyleOptions” />
+                <n-form-item label="语气">
+                  <n-select v-model:value="form.persona.style" :options="personaStyleOptions" />
                 </n-form-item>
                 <n-form-item label="严重故障">
                   <div class="setting-row">

@@ -147,6 +147,7 @@ type Status struct {
 	ExternalProcess              bool       `json:"external_process"`
 	LastExitAt                   *time.Time `json:"last_exit_at,omitempty"`
 	LastExitCode                 int        `json:"last_exit_code"`
+	LastExitPlanned              bool       `json:"last_exit_planned"`
 	LastError                    string     `json:"last_error"`
 	RestartCount                 int        `json:"restart_count"`
 	RecentCrashCount             int        `json:"recent_crash_count"`
@@ -196,6 +197,7 @@ type ServerSupervisor struct {
 	startedAt                 time.Time
 	lastExitAt                time.Time
 	lastExitCode              int
+	lastExitPlanned           bool
 	lastError                 string
 	restartCount              int
 	restartTimes              []time.Time
@@ -974,6 +976,7 @@ func (s *ServerSupervisor) handleExitedLocked(now time.Time) {
 		s.state = StateStopped
 		return
 	}
+	s.lastExitPlanned = s.plannedShutdown
 	if s.plannedShutdown {
 		s.plannedShutdown = false
 		if s.transactionActive {
@@ -1151,6 +1154,7 @@ func (s *ServerSupervisor) statusLocked(now time.Time) Status {
 		Restarting:                   s.restarting || s.state == StateRestartWaiting || s.state == StateRestarting,
 		ExternalProcess:              s.externalProcess,
 		LastExitCode:                 s.lastExitCode,
+		LastExitPlanned:              s.lastExitPlanned,
 		LastError:                    s.lastError,
 		RestartCount:                 s.restartCount,
 		RecentCrashCount:             len(s.restartTimes),

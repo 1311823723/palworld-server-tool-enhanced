@@ -193,6 +193,9 @@ func TestGracefulRestartOrderWaitsForExitAndDelay(t *testing.T) {
 	}
 	first.Exit(0, nil)
 	waitFor(t, func() bool { return launcher.Count() == 2 })
+	if !s.Status().LastExitPlanned {
+		t.Fatal("planned restart exit must be marked as planned")
+	}
 	if got := controller.Events(); len(got) != 2 || got[0] != "save" || got[1] != "shutdown" {
 		t.Fatalf("controller order = %v", got)
 	}
