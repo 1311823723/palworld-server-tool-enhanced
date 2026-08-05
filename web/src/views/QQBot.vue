@@ -53,6 +53,7 @@ const form = reactive({
   persona: {
     enabled: true,
     style: "lively",
+    character: "cattiva",
     serious_on_error: true,
   },
   ai: {
@@ -84,11 +85,20 @@ const personaStyleOptions = [
   { label: "活泼", value: "lively" },
   { label: "调皮", value: "mischievous" },
 ];
+const personaCharacterOptions = [
+  { label: "捣蛋喵（Cattiva）", value: "cattiva" },
+  { label: "棉悠悠（Lamball）", value: "lamball" },
+];
 const personaPreview = computed(() => {
   if (!form.persona.enabled) return "服务器当前运行正常。在线玩家：6 人。";
-  if (form.persona.style === "restrained") return "本喵查到了。服务器当前运行正常，在线玩家 6 人。";
-  if (form.persona.style === "mischievous") return "这种小事当然难不倒本喵，嘿嘿！服务器当前运行正常，在线玩家 6 人。";
-  return "哼哼，本喵已经查到了！服务器当前运行正常，在线玩家 6 人。";
+  if (form.persona.character === "lamball") {
+    if (form.persona.style === "restrained") return "嗯……棉悠悠查到了，训练家你看一下……服务器当前运行正常，在线玩家 6 人。";
+    if (form.persona.style === "mischievous") return "嘿、嘿嘿……虽然有一点点紧张，但棉悠悠还是查到了！服务器当前运行正常，在线玩家 6 人。";
+    return "嗯……训、训练家，棉悠悠帮你查到了~服务器当前运行正常，在线玩家 6 人。";
+  }
+  if (form.persona.style === "restrained") return "好的喵，本喵查到了。服务器当前运行正常，在线玩家 6 人。";
+  if (form.persona.style === "mischievous") return "嘿嘿，这点小事可难不倒本喵喵~服务器当前运行正常，在线玩家 6 人。";
+  return "喵！本喵帮训练家查到啦~服务器当前运行正常，在线玩家 6 人。";
 });
 
 function assignConfig(value) {
@@ -384,12 +394,15 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
             </div>
           </n-card>
 
-          <n-card title="5. 回复风格" size="small">
-            <div class="section-toggle"><div><b>使用“捣蛋喵”人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value="form.persona.enabled" /></div>
-            <n-collapse-transition :show="form.persona.enabled">
-              <div class="form-grid persona-form">
-                <n-form-item label="猫味程度">
-                  <n-select v-model:value="form.persona.style" :options="personaStyleOptions" />
+          <n-card title=”5. 回复风格” size=”small”>
+            <div class=”section-toggle”><div><b>使用帕鲁人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value=”form.persona.enabled” /></div>
+            <n-collapse-transition :show=”form.persona.enabled”>
+              <div class=”form-grid persona-form”>
+                <n-form-item label=”角色”>
+                  <n-select v-model:value=”form.persona.character” :options=”personaCharacterOptions” />
+                </n-form-item>
+                <n-form-item label=”语气”>
+                  <n-select v-model:value=”form.persona.style” :options=”personaStyleOptions” />
                 </n-form-item>
                 <n-form-item label="严重故障">
                   <div class="setting-row">

@@ -18,6 +18,8 @@ const pageSize = ref(50);
 const search = ref("");
 const sourceType = ref("");
 const sort = ref("count_desc");
+const baseId = ref("");
+const bases = ref([]);
 const showLocations = ref(false);
 const selectedItem = ref(null);
 const locations = ref([]);
@@ -33,10 +35,25 @@ const iconModules = import.meta.glob("/src/assets/items/*.webp", { eager: true, 
 const iconFor = (id) => iconModules[`/src/assets/items/${String(id || "").toLowerCase()}.webp`] || "";
 const sourceLabel = (source) => ({ player_common: "玩家背包", player_drop: "玩家掉落栏", player_essential: "玩家关键物品", player_food: "玩家食物栏", player_equipment: "玩家装备", base_container: "据点容器", base_storage: "据点容器", base_feed_box: "据点饲料箱", breeding_farm_cake_box: "配种农场蛋糕箱" }[source] || source || "未知来源");
 const errorText = (data) => data?.error || "库存请求失败";
+const selectedBase = computed(() => bases.value.find((b) => b.name === baseId.value) || null);
+
+const subtitle = computed(() => {
+  if (selectedBase.value) return `查看据点"${selectedBase.value.label}"的全部物品`;
+  return "按物品查看数量，以及它们所在的背包和据点容器。";
+});
+
+async function loadBases() {
+  const { data, statusCode } = await api.getBaseCamps();
+  if (statusCode.value === 200) {
+    bases.value = (data.value?.items || data.value || []).map((b) => ({ label: b.display_name || b.base_name, name: b.base_id }));
+  }
+}
 
 async function loadSummary() {
   loading.value = true;
-  const { data, statusCode } = await api.getInventorySummary({ page: page.value, page_size: pageSize.value, q: search.value, source_type: sourceType.value, sort: sort.value });
+  const params = { page: page.value, page_size: pageSize.value, q: search.value, source_type: sourceType.value, sort: sort.value };
+  if (baseId.value) params.base_id = baseId.value;
+  const { data, statusCode } = await api.getInventorySummary(params);
   loading.value = false;
   if (statusCode.value !== 200) { message.error(errorText(data.value)); return; }
   items.value = data.value?.items || [];
@@ -49,8 +66,11 @@ async function openLocations(item) {
   showLocations.value = true;
   locationsLoading.value = true;
   try {
-    locations.value = await loadOnce(locationCache, `${item.item_id}:${sourceType.value}`, async () => {
-      const { data, statusCode } = await api.getInventoryItemLocations(item.item_id, { page_size: 200, source_type: sourceType.value });
+    const cacheKey = `${item.item_id}:${sourceType.value}:${baseId.value}`;
+    locations.value = await loadOnce(locationCache, cacheKey, async () => {
+      const params = { page_size: 200, source_type: sourceType.value };
+      if (baseId.value) params.base_id = baseId.value;
+      const { data, statusCode } = await api.getInventoryItemLocations(item.item_id, params);
       if (statusCode.value !== 200) throw new Error(errorText(data.value));
       return data.value?.items || [];
     });
@@ -61,24 +81,26 @@ async function openLocations(item) {
 const columns = computed(() => [
   { title: "物品", key: "item_id", render: (row) => h("div", { class: "item-cell", style: "display:flex;align-items:center;gap:12px" }, [iconFor(row.item_id) ? h("img", { src: iconFor(row.item_id), alt: "", class: "item-icon", style: "width:42px;height:42px;object-fit:contain;border-radius:8px" }) : null, h("div", [h("strong", labelFor(row.item_id, row.item_name, row.item_display_name)), h("small", { style: "display:block;opacity:.5;margin-top:3px" }, row.item_id)])]) },
   { title: "总数量", key: "total_count", sorter: "default", render: (row) => Number(row.total_count).toLocaleString() },
-  { title: "玩家 / 据点", key: "split", render: (row) => `${Number(row.player_total).toLocaleString()} / ${Number(row.base_total).toLocaleString()}` },
+  baseId.value ? null : { title: "玩家 / 据点", key: "split", render: (row) => `${Number(row.player_total).toLocaleString()} / ${Number(row.base_total).toLocaleString()}` },
   { title: "位置", key: "locations", render: (row) => h(NTag, { size: "small", round: true }, { default: () => `${row.location_count} 格 · ${row.container_count} 容器` }) },
   { title: "", key: "actions", render: (row) => h(NButton, { size: "small", secondary: true, onClick: () => openLocations(row) }, { default: () => "查看位置" }) },
-]);
+].filter(Boolean));
 
 watch([sourceType, sort, page, pageSize], loadSummary);
+watch(baseId, () => { locationCache.clear(); page.value = 1; loadSummary(); });
 watch(search, () => { clearTimeout(timer); timer = setTimeout(() => { page.value = 1; loadSummary(); }, 300); });
-onMounted(loadSummary);
+onMounted(async () => { await loadBases(); loadSummary(); });
 </script>
 
 <template>
-  <operations-shell title="全服库存" subtitle="按物品查看数量，以及它们所在的背包和据点容器。" :metadata="metadata" :loading="loading" @refresh="loadSummary">
+  <operations-shell title="全服库存" :subtitle="subtitle" :metadata="metadata" :loading="loading" @refresh="loadSummary">
     <n-alert v-if="metadata.is_stale" type="warning" class="mb-4">存档快照已过期：{{ metadata.save_file_time || metadata.snapshot_time }}</n-alert>
     <n-card size="small">
       <template #header>库存总览 <n-tag size="small" round>{{ total }} 种物品</n-tag></template>
       <template #header-extra><n-button size="small" :loading="loading" @click="loadSummary">刷新</n-button></template>
       <n-space class="filters mb-4">
         <n-input v-model:value="search" clearable placeholder="搜索物品 ID 或名称" style="min-width:260px" />
+        <n-select v-model:value="baseId" :options="bases" clearable placeholder="全部据点" style="width:190px" />
         <n-select v-model:value="sourceType" clearable placeholder="全部来源" :options="[{label:'玩家背包',value:'player_common'},{label:'玩家食物栏',value:'player_food'},{label:'玩家装备',value:'player_equipment'},{label:'据点容器',value:'base_storage'},{label:'据点饲料箱',value:'base_feed_box'},{label:'配种农场蛋糕箱',value:'breeding_farm_cake_box'}]" style="width:190px" />
         <n-select v-model:value="sort" :options="[{label:'数量从高到低',value:'count_desc'},{label:'数量从低到高',value:'count_asc'},{label:'名称',value:'name'},{label:'位置数量',value:'locations'}]" style="width:170px" />
       </n-space>

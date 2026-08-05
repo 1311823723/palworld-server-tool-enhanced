@@ -141,11 +141,15 @@ const (
 	QQBotPersonaRestrained  = "restrained"
 	QQBotPersonaLively      = "lively"
 	QQBotPersonaMischievous = "mischievous"
+
+	QQBotPersonaCharacterCattiva = "cattiva"
+	QQBotPersonaCharacterLamball = "lamball"
 )
 
 type QQBotPersonaConfig struct {
 	Enabled        bool   `json:"enabled"`
 	Style          string `json:"style"`
+	Character      string `json:"character"`
 	SeriousOnError bool   `json:"serious_on_error"`
 }
 
@@ -592,6 +596,11 @@ func ValidateQQBot(value QQBotConfig) error {
 	case QQBotPersonaRestrained, QQBotPersonaLively, QQBotPersonaMischievous:
 	default:
 		return errors.New("QQ 机器人回复风格不受支持")
+	}
+	switch value.Persona.Character {
+	case "", QQBotPersonaCharacterCattiva, QQBotPersonaCharacterLamball:
+	default:
+		return errors.New("QQ 机器人角色不受支持")
 	}
 	return nil
 }

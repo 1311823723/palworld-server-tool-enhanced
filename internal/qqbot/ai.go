@@ -57,15 +57,18 @@ var (
 	windowsPathPattern = regexp.MustCompile(`(?i)\b[A-Z]:\\[^\r\n，。；;]+`)
 )
 
-func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, text string) (string, error) {
+func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, history []chatEntry, text string) (string, error) {
 	value := m.Config()
 	if !value.AI.Enabled || strings.TrimSpace(value.AI.APIKey) == "" {
 		return "", errors.New("DeepSeek 未启用")
 	}
-	messages := []deepSeekMessage{
-		{Role: "system", Content: deepSeekSystemPrompt(value)},
-		{Role: "user", Content: redactForAI(text)},
+	messages := []deepSeekMessage{{Role: "system", Content: deepSeekSystemPrompt(value)}}
+	// 回放历史上下文：只包含脱敏后的最终 user/assistant 文本，无 tool_calls，
+	// 不会触发 DeepSeek thinking 模式对 reasoning_content 的回传校验。
+	for _, entry := range history {
+		messages = append(messages, deepSeekMessage{Role: entry.Role, Content: entry.Content})
 	}
+	messages = append(messages, deepSeekMessage{Role: "user", Content: redactForAI(text)})
 	response, err := callDeepSeek(ctx, value.AI, messages, deepSeekTools())
 	if err != nil {
 		return "", err
@@ -194,6 +197,10 @@ func (m *Manager) executeAITool(conversation Conversation, name, arguments strin
 		if permissions.QueryServerStatus {
 			return m.restartScheduleText()
 		}
+	case "get_base_inventory":
+		if permissions.QueryInventory {
+			return m.baseInventoryText(args.BaseName)
+		}
 	case "rename_base":
 		return m.requestRename(conversation, args.BaseName, args.NewName)
 	case "start_server":
@@ -310,6 +317,7 @@ func deepSeekTools() []jsonObject {
 		tool("get_breeding_farms", "查询配种农场列表，包含亲本、蛋糕数量和蛋", empty),
 		tool("get_backup_status", "查询最近一次存档备份", empty),
 		tool("get_restart_schedule", "查询下次自动重启", empty),
+		tool("get_base_inventory", "查询某个据点有哪些物品和数量", object(jsonObject{"base_name": stringProperty("据点名称")}, "base_name")),
 		tool("rename_base", "发起据点自定义名称修改，必须二次确认", object(jsonObject{"base_name": stringProperty("现有据点名称"), "new_name": stringProperty("新名称")}, "base_name", "new_name")),
 		tool("start_server", "发起 PalServer 启动，必须二次确认", empty),
 		tool("restart_server", "发起 PalServer 平滑重启，必须二次确认", empty),

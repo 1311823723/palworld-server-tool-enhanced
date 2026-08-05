@@ -49,6 +49,7 @@ type Manager struct {
 	userRequests    map[string][]time.Time
 	groupRequests   map[string][]time.Time
 	privateMembers  map[string]membershipCacheEntry
+	history         map[string]chatHistory
 	queuedNotices   []queuedNotice
 	sentNotices     map[string]time.Time
 
@@ -71,6 +72,7 @@ func NewManager(db *bbolt.DB, process ProcessManager, value config.QQBotConfig) 
 		userRequests:   make(map[string][]time.Time),
 		groupRequests:  make(map[string][]time.Time),
 		privateMembers: make(map[string]membershipCacheEntry),
+		history:        make(map[string]chatHistory),
 		sentNotices:    make(map[string]time.Time),
 	}
 	if value.Enabled {
@@ -112,6 +114,7 @@ func (m *Manager) UpdateConfig(value config.QQBotConfig) error {
 	m.userRequests = make(map[string][]time.Time)
 	m.groupRequests = make(map[string][]time.Time)
 	m.privateMembers = make(map[string]membershipCacheEntry)
+	m.history = make(map[string]chatHistory)
 	m.mu.Unlock()
 	if connection != nil {
 		_ = connection.Close()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,17 @@ import (
 	"github.com/zaigie/palworld-server-tool/service"
 )
 
+const (
+	// maxHistoryEntries 限制单个会话缓存的上下文消息条数（按 user/assistant 成对存储）。
+	maxHistoryEntries = 4
+	// historyTTL 会话上下文超过该时长即视为过期并丢弃。
+	historyTTL = 10 * time.Minute
+)
+
+// confirmationCodePattern 用于识别包含二次确认验证码的回复。验证码只用于当次
+// 确认，不进入后续对话上下文，避免下一轮把它重新发给模型。
+var confirmationCodePattern = regexp.MustCompile(`确认\s*\d{6}`)
+
 func (m *Manager) handleMessage(parent context.Context, event jsonObject) {
 	conversation, text, messageID, ok := m.authorizeMessage(parent, event)
 	if !ok || text == "" || !m.acceptMessage(messageID, conversation) {
@@ -26,10 +38,11 @@ func (m *Manager) handleMessage(parent context.Context, event jsonObject) {
 	}
 	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
+	history := m.conversationHistory(conversation)
 	response, handled := m.handleLocalCommand(ctx, conversation, text)
 	if !handled {
 		var err error
-		response, err = m.answerWithAI(ctx, conversation, text)
+		response, err = m.answerWithAI(ctx, conversation, history, text)
 		if err != nil {
 			logger.Warnf("AI 调用失败: %v", err)
 			response = fmt.Sprintf("AI 暂时不可用（%s）。发送“帮助”查看可用命令。", err.Error())
@@ -37,9 +50,67 @@ func (m *Manager) handleMessage(parent context.Context, event jsonObject) {
 			response = "我暂时没理解这句话。发送“帮助”查看可用命令；DeepSeek 未配置或不可用时，基础命令仍可正常使用。"
 		}
 	}
+	m.recordHistory(conversation, text, response)
 	if err := m.Send(ctx, conversation, response); err != nil {
 		m.recordConnectionError(err)
 	}
+}
+
+// conversationHistory 返回该会话尚未过期的历史消息（不含本条用户消息）。
+// 本地命令与 AI 的最终回复都会写入历史，因此跨命令/AI 的追问也能接上。
+func (m *Manager) conversationHistory(conversation Conversation) []chatEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pruneHistoryLocked(time.Now().UTC())
+	record, ok := m.history[conversation.key()]
+	if !ok || time.Now().UTC().Sub(record.UpdatedAt) > historyTTL {
+		return nil
+	}
+	return append([]chatEntry(nil), record.Entries...)
+}
+
+// recordHistory 把一条消息与其最终回复写入会话历史。只存脱敏后的最终文本，
+// 回复包含二次确认验证码时替换为占位符，避免验证码流入模型上下文。
+func (m *Manager) recordHistory(conversation Conversation, text, response string) {
+	userText := redactForAI(text)
+	if userText == "" {
+		return
+	}
+	reply := strings.TrimSpace(response)
+	if containsConfirmationCode(reply) {
+		reply = "[需验证码确认的操作]"
+	}
+	if reply == "" {
+		reply = "[无回复]"
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	m.pruneHistoryLocked(now)
+	key := conversation.key()
+	record := m.history[key]
+	record.Entries = append(record.Entries,
+		chatEntry{Role: "user", Content: userText},
+		chatEntry{Role: "assistant", Content: reply},
+	)
+	if len(record.Entries) > maxHistoryEntries {
+		// 只保留最近几轮；条目始终成对，从头部截断不会破坏 user/assistant 交替。
+		record.Entries = record.Entries[len(record.Entries)-maxHistoryEntries:]
+	}
+	record.UpdatedAt = now
+	m.history[key] = record
+}
+
+func (m *Manager) pruneHistoryLocked(now time.Time) {
+	for key, record := range m.history {
+		if now.Sub(record.UpdatedAt) > historyTTL {
+			delete(m.history, key)
+		}
+	}
+}
+
+func containsConfirmationCode(value string) bool {
+	return confirmationCodePattern.MatchString(value)
 }
 
 func (m *Manager) authorizeMessage(ctx context.Context, event jsonObject) (Conversation, string, string, bool) {
@@ -293,6 +364,16 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		}
 		return m.basesText(), true
 	}
+	if strings.Contains(compact, "有哪些东西") || strings.Contains(compact, "有什么东西") || strings.Contains(compact, "有什么物品") || strings.Contains(compact, "有哪些物品") || strings.Contains(compact, "里面有什么") || strings.Contains(compact, "里面都有什么") {
+		if !value.Permissions.QueryInventory {
+			return "库存查询未开放。", true
+		}
+		name := strings.TrimSpace(compact)
+		for _, suffix := range []string{"有哪些东西", "有什么东西", "有什么物品", "有哪些物品", "里面有什么", "里面都有什么"} {
+			name = strings.TrimSpace(strings.ReplaceAll(name, suffix, ""))
+		}
+		return m.baseInventoryText(name), true
+	}
 	if strings.Contains(compact, "据点详情") {
 		if !value.Permissions.QueryBases {
 			return "据点查询未开放。", true
@@ -308,7 +389,7 @@ func commandHelp() string {
 		"• 服务器状态 / 现在谁在线 / 谁没在线\n" +
 		"• 查询 张三 在线时间 / 公会列表\n" +
 		"• 石头还有多少 / 石头在哪\n" +
-		"• 据点列表 / 第一据点有哪些帕鲁 / 第一据点异常帕鲁 / 第一据点详情\n" +
+		"• 据点列表 / 第一据点有哪些东西 / 第一据点异常帕鲁 / 第一据点详情\n" +
 		"• 配种农场 / 配种提醒 / 最近一次备份 / 下次自动重启\n" +
 		"管理员还可发起：把旧基地改名为第一据点、启动服务器、重启服务器、关服。危险操作需在 60 秒内回复六位验证码。"
 }
@@ -468,8 +549,10 @@ func (m *Manager) inventoryTextFiltered(item, baseID, playerUID string) string {
 		}
 		lines = append(lines, fmt.Sprintf("• %s：%d（%d 个位置）", name, current.TotalCount, current.LocationCount))
 		locQuery := service.InventoryQuery{Page: 1, PageSize: 3, BaseID: baseID, PlayerUID: playerUID}
-		locations, _, _, locationErr := service.InventoryLocations(m.db, current.ItemID, locQuery)
+		locations, _, totalLocations, locationErr := service.InventoryLocations(m.db, current.ItemID, locQuery)
 		if locationErr == nil {
+			shown := 0
+			var shownSum int64
 			for index, location := range locations {
 				if index == 3 {
 					break
@@ -482,6 +565,15 @@ func (m *Manager) inventoryTextFiltered(item, baseID, playerUID string) string {
 					place = location.ContainerName
 				}
 				lines = append(lines, fmt.Sprintf("  %s：%d", place, location.Count))
+				shown++
+				shownSum += location.Count
+			}
+			// 位置展示有上限（前 3 个），补一行对账让总数与明细对得上，
+			// 避免用户或 AI 把“只列了 3 处”误解成“只统计了 3 格”。
+			if hidden := totalLocations - shown; hidden > 0 {
+				if hiddenSum := current.TotalCount - shownSum; hiddenSum > 0 {
+					lines = append(lines, fmt.Sprintf("  另有 %d 处未列出：合计 %d", hidden, hiddenSum))
+				}
 			}
 		}
 	}
@@ -917,6 +1009,37 @@ func (m *Manager) confirmAction(conversation Conversation, code string) string {
 	return "操作已提交。"
 }
 
+func (m *Manager) baseInventoryText(query string) string {
+	base, err := m.findBase(query)
+	if err != nil {
+		return err.Error()
+	}
+	page, err := service.InventorySummary(m.db, service.InventoryQuery{BaseID: base.BaseID, Page: 1, PageSize: 200})
+	if err != nil {
+		return "暂时无法读取库存快照。"
+	}
+	if len(page.Items) == 0 {
+		return fmt.Sprintf("%s 的库存为空。", base.DisplayName)
+	}
+	lines := []string{fmt.Sprintf("%s 共 %d 种物品：", base.DisplayName, page.Total)}
+	listed := 0
+	for _, item := range page.Items {
+		if listed == 15 {
+			lines = append(lines, fmt.Sprintf("另有 %d 种物品未列出", page.Total-listed))
+			break
+		}
+		name := item.ItemDisplayName
+		if name == "" {
+			name = item.ItemName
+		}
+		if name == "" {
+			name = item.ItemID
+		}
+		lines = append(lines, fmt.Sprintf("• %s：%d（%d 个位置）", name, item.TotalCount, item.LocationCount))
+		listed++
+	}
+	return strings.Join(lines, "\n")
+}
 func (m *Manager) findBase(query string) (database.BaseCampSnapshot, error) {
 	bases, _, err := service.ListBaseCamps(m.db)
 	if err != nil {

@@ -110,6 +110,21 @@ func (c Conversation) key() string {
 	return c.Type + ":" + c.GroupID + ":" + c.UserID
 }
 
+// chatEntry 是缓存在内存里的会话历史消息，只保存脱敏后的最终 user/assistant
+// 文本，不保存工具调用过程，回放时可直接作为普通消息发给模型，也不会触发
+// DeepSeek thinking 模式对 reasoning_content 的回传要求。
+type chatEntry struct {
+	Role    string
+	Content string
+}
+
+// chatHistory 记录单个会话（群:用户）最近几轮的最终回复，带最近更新时间，
+// 超过 historyTTL 即视为过期并丢弃。
+type chatHistory struct {
+	Entries   []chatEntry
+	UpdatedAt time.Time
+}
+
 type pendingAction struct {
 	Code         string
 	Conversation Conversation

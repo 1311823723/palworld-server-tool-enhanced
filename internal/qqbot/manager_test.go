@@ -3,6 +3,7 @@ package qqbot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http/httptest"
 	"path/filepath"
@@ -91,12 +92,12 @@ func TestPersonaKeepsFactsAndUsesSeriousToneForErrors(t *testing.T) {
 	value := config.Default().QQBot
 	manager := &Manager{config: value}
 	response := manager.personaReply("服务器状态：运行中\n在线玩家：6 人")
-	if !strings.Contains(response, "哼哼，本喵已经查到了") || !strings.Contains(response, "在线玩家：6 人") {
+	if !strings.Contains(response, "本喵帮训练家查到啦") || !strings.Contains(response, "在线玩家：6 人") {
 		t.Fatalf("lively persona response = %q", response)
 	}
 
 	response = manager.personaReply("PalServer 意外退出，最近错误：进程崩溃")
-	if !strings.Contains(response, "事情好像有点大") || !strings.Contains(response, "最近错误：进程崩溃") {
+	if !strings.Contains(response, "出状况了") || !strings.Contains(response, "最近错误：进程崩溃") {
 		t.Fatalf("serious persona response = %q", response)
 	}
 
@@ -108,10 +109,24 @@ func TestPersonaKeepsFactsAndUsesSeriousToneForErrors(t *testing.T) {
 	}
 }
 
+func TestLamballPersonaProducesDistinctIntro(t *testing.T) {
+	value := config.Default().QQBot
+	value.Persona.Character = config.QQBotPersonaCharacterLamball
+	manager := &Manager{config: value}
+	response := manager.personaReply("服务器状态：运行中\n在线玩家：6 人")
+	if !strings.Contains(response, "棉悠悠") || !strings.Contains(response, "在线玩家：6 人") {
+		t.Fatalf("lamball persona response = %q", response)
+	}
+	response = manager.personaReply("PalServer 意外退出，最近错误：进程崩溃")
+	if !strings.Contains(response, "棉悠悠") || !strings.Contains(response, "最近错误：进程崩溃") {
+		t.Fatalf("lamball serious persona response = %q", response)
+	}
+}
+
 func TestDeepSeekPersonaPromptKeepsSafetyRules(t *testing.T) {
 	value := config.Default().QQBot
 	prompt := deepSeekSystemPrompt(value)
-	for _, required := range []string{"捣蛋喵", "不得补全、推测或编造", "未调用工具时", "由 PST 生成二次确认", "不要每句话都加“喵”"} {
+	for _, required := range []string{"捣蛋喵", "不得补全、推测或编造", "未调用工具时", "由 PST 生成二次确认", "不要每句话"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("DeepSeek persona prompt missing %q: %s", required, prompt)
 		}
@@ -158,6 +173,36 @@ func TestInventoryCommandMatchesAndRepliesWithChineseItemName(t *testing.T) {
 	response := manager.inventoryText("石头")
 	if !strings.Contains(response, "石头：128") || strings.Contains(response, "没有找到") {
 		t.Fatalf("Chinese inventory response = %q", response)
+	}
+}
+
+func TestInventoryReconciliationLineShowsHiddenLocations(t *testing.T) {
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "pst.db"), 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	slots := make([]database.InventoryLocation, 0, 5)
+	for i := 1; i <= 5; i++ {
+		slots = append(slots, database.InventoryLocation{
+			LocationID: fmt.Sprintf("c%d:0", i), ItemID: "stone", ItemName: "Stone", Count: 100,
+			ContainerID: fmt.Sprintf("c%d", i), ContainerName: fmt.Sprintf("箱%d", i),
+			SourceType: "base_storage", BaseID: "b1", BaseName: "第一据点",
+		})
+	}
+	if _, err := service.PutSnapshot(db, database.SnapshotPayload{
+		Metadata:       database.SnapshotMetadata{SnapshotTime: time.Now().UTC(), SaveFileTime: time.Now().UTC()},
+		InventorySlots: slots,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{db: db}
+	response := manager.inventoryTextFiltered("石头", "b1", "")
+	if !strings.Contains(response, "石头：500") {
+		t.Fatalf("total should cover all 5 locations, reply = %q", response)
+	}
+	if !strings.Contains(response, "另有 2 处未列出：合计 200") {
+		t.Fatalf("reconciliation line should cover the 2 hidden locations, reply = %q", response)
 	}
 }
 
@@ -215,5 +260,55 @@ func TestExpiredConfirmationDoesNotExecute(t *testing.T) {
 	manager.pendingActions[conversation.key()] = pendingAction{Code: "123456", Conversation: conversation, Kind: "restart", ExpiresAt: time.Now().Add(-time.Second)}
 	if response := manager.confirmAction(conversation, "123456"); !strings.Contains(response, "过期") {
 		t.Fatalf("expired confirmation response = %q", response)
+	}
+}
+
+func TestConversationHistoryCapsExpiresAndStripsCodes(t *testing.T) {
+	manager := &Manager{history: map[string]chatHistory{}}
+	conversation := Conversation{Type: "group", GroupID: "90000000000000000002", UserID: "90000000000000000001"}
+	manager.recordHistory(conversation, "第一据点有哪些帕鲁", "第一据点：3 只工作帕鲁")
+	manager.recordHistory(conversation, "第二据点呢", "第二据点：2 只工作帕鲁")
+	manager.recordHistory(conversation, "重启服务器", "即将重启 PalServer。\n如确认，请在 60 秒内回复：确认 123456")
+
+	history := manager.conversationHistory(conversation)
+	if len(history) != maxHistoryEntries {
+		t.Fatalf("expected %d history entries, got %d", maxHistoryEntries, len(history))
+	}
+	joined := ""
+	for _, entry := range history {
+		joined += entry.Role + ":" + entry.Content + "\n"
+	}
+	if strings.Contains(joined, "123456") {
+		t.Fatalf("confirmation code leaked into history: %q", joined)
+	}
+	if !strings.Contains(joined, "第二据点呢") || !strings.Contains(joined, "[需验证码确认的操作]") {
+		t.Fatalf("recent turns should be kept: %q", joined)
+	}
+	if strings.Contains(joined, "第一据点有哪些帕鲁") {
+		t.Fatalf("oldest turn should be dropped beyond the cap: %q", joined)
+	}
+
+	// 过期后历史应返回 nil。
+	manager.mu.Lock()
+	key := conversation.key()
+	record := manager.history[key]
+	record.UpdatedAt = time.Now().UTC().Add(-historyTTL - time.Second)
+	manager.history[key] = record
+	manager.mu.Unlock()
+	if history := manager.conversationHistory(conversation); history != nil {
+		t.Fatalf("expired history should return nil, got %#v", history)
+	}
+}
+
+func TestConversationHistoryIsIsolatedPerUser(t *testing.T) {
+	manager := &Manager{history: map[string]chatHistory{}}
+	first := Conversation{Type: "group", GroupID: "90000000000000000002", UserID: "90000000000000000001"}
+	second := Conversation{Type: "group", GroupID: "90000000000000000002", UserID: "90000000000000000003"}
+	manager.recordHistory(first, "查一下张三", "张三：在线")
+	if history := manager.conversationHistory(second); history != nil {
+		t.Fatalf("another user in the same group must not see the first user's context: %#v", history)
+	}
+	if history := manager.conversationHistory(first); len(history) != 2 {
+		t.Fatalf("own context should be available: %#v", history)
 	}
 }
