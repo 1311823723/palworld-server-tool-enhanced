@@ -189,6 +189,19 @@ func TestServerProcessStartConflictReturns409(t *testing.T) {
 	}
 }
 
+func TestSaveServerRequiresRunningProcess(t *testing.T) {
+	manager := &fakeServerProcessManager{status: supervisor.Status{State: supervisor.StateStopped}}
+	router, token, store := newAuthenticatedProcessRouter(t, manager)
+	defer store.Close()
+	response := performJSONRequest(router, http.MethodPost, "/api/server/save", nil, token)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("save while stopped code = %d, want 400: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), supervisor.ErrNotRunning.Error()) {
+		t.Fatalf("save while stopped body = %s", response.Body.String())
+	}
+}
+
 func TestConfigRejectsInvalidExecutableAndCommandInjection(t *testing.T) {
 	router, token, store := newAuthenticatedProcessRouter(t, &fakeServerProcessManager{})
 	defer store.Close()

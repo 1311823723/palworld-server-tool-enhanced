@@ -136,6 +136,19 @@ func (m *Manager) Config() config.QQBotConfig {
 	return value
 }
 
+// SwitchPersonaCharacter changes only the character used by QQ replies. The
+// config store updates the single field transactionally, so this chat action
+// cannot accidentally overwrite credentials or permission settings.
+func (m *Manager) SwitchPersonaCharacter(character string) error {
+	if err := config.CurrentStore().SetQQBotPersonaCharacter(character); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.config.Persona.Character = character
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) Status() Status {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -369,9 +382,11 @@ func (m *Manager) callAction(ctx context.Context, action string, params jsonObje
 
 func (m *Manager) Send(ctx context.Context, conversation Conversation, message string) error {
 	// Use an explicit text segment so save-derived player/base/item names cannot
-	// be interpreted as CQ codes by OneBot implementations.
+	// be interpreted as CQ codes by OneBot implementations, and render the text
+	// for QQ plain messages before it reaches NapCat.
 	message = m.personaReply(message)
-	params := jsonObject{"message": []jsonObject{{"type": "text", "data": jsonObject{"text": message}}}}
+	segments := formatTextSegments([]jsonObject{{"type": "text", "data": jsonObject{"text": message}}})
+	params := jsonObject{"message": segments}
 	action := "send_private_msg"
 	if conversation.Type == "group" {
 		action = "send_group_msg"
@@ -514,8 +529,11 @@ func waitContext(ctx context.Context, duration time.Duration) bool {
 }
 
 func asObject(value any) jsonObject {
-	if result, ok := value.(map[string]any); ok {
-		return result
+	switch typed := value.(type) {
+	case jsonObject:
+		return typed
+	case map[string]any:
+		return typed
 	}
 	return jsonObject{}
 }

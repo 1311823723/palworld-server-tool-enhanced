@@ -14,7 +14,7 @@ func TestQQBotConfigurationIsLocalOnlyAndRedacted(t *testing.T) {
 	if value.OneBotWebSocketURL != "ws://127.0.0.1:3001" || !value.Permissions.RestartServer || value.Permissions.StartServer || value.Permissions.StopServer {
 		t.Fatalf("unexpected QQ bot defaults: %#v", value)
 	}
-	if !value.Persona.Enabled || value.Persona.Style != QQBotPersonaLively || !value.Persona.SeriousOnError {
+	if !value.Persona.Enabled || value.Persona.Style != QQBotPersonaLively || value.Persona.Character != QQBotPersonaCharacterCattiva || !value.Persona.SeriousOnError {
 		t.Fatalf("unexpected QQ bot persona defaults: %#v", value.Persona)
 	}
 	if value.AI.Model != DeepSeekModelV4Flash {
@@ -53,6 +53,31 @@ func TestQQBotConfigurationIsLocalOnlyAndRedacted(t *testing.T) {
 	redacted := settings.Redacted()
 	if redacted.QQBot.OneBotToken != "" || redacted.QQBot.AI.APIKey != "" {
 		t.Fatal("QQ bot secrets must be removed from redacted configuration")
+	}
+}
+
+func TestQQBotPersonaCharacterUpdatePreservesOtherSettings(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "config.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	value := store.Config().QQBot
+	value.OneBotToken = "onebot-secret"
+	value.AllowedGroupIDs = []string{"90000000000000000002"}
+	value.Persona.Style = QQBotPersonaMischievous
+	if err := store.SetQQBot(value); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetQQBotPersonaCharacter(QQBotPersonaCharacterLamball); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Config().QQBot
+	if got.Persona.Character != QQBotPersonaCharacterLamball || got.Persona.Style != QQBotPersonaMischievous || got.OneBotToken != "onebot-secret" || len(got.AllowedGroupIDs) != 1 {
+		t.Fatalf("persona switch overwrote other QQ bot settings: %#v", got)
+	}
+	if err := store.SetQQBotPersonaCharacter("unknown"); err == nil {
+		t.Fatal("unsupported persona character must be rejected")
 	}
 }
 

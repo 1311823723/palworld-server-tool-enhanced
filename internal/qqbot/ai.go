@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -55,6 +56,13 @@ var (
 	longIDPattern      = regexp.MustCompile(`\b\d{15,20}\b`)
 	uuidPattern        = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f-]{27,36}\b`)
 	windowsPathPattern = regexp.MustCompile(`(?i)\b[A-Z]:\\[^\r\n，。；;]+`)
+	dsmlInvokePattern  = regexp.MustCompile(`(?s)<｜｜DSML｜｜invoke\s+name="([^"]+)"[^>]*>(.*?)</｜｜DSML｜｜invoke>`)
+	dsmlParamPattern   = regexp.MustCompile(`(?s)<｜｜DSML｜｜parameter\s+name="([^"]+)"[^>]*>(.*?)</｜｜DSML｜｜parameter>`)
+)
+
+const (
+	dsmlToolCallsStart = "<｜｜DSML｜｜tool_calls>"
+	dsmlToolCallsEnd   = "</｜｜DSML｜｜tool_calls>"
 )
 
 func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, history []chatEntry, text string) (string, error) {
@@ -78,7 +86,17 @@ func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, h
 	}
 	message := response.Choices[0].Message
 	if len(message.ToolCalls) == 0 {
-		return strings.TrimSpace(message.Content), nil
+		cleanContent, parsedCalls := parseDSMLToolCalls(message.Content)
+		if len(parsedCalls) > 0 {
+			// Some OpenAI-compatible gateways expose DeepSeek's internal DSML
+			// tool syntax in content instead of the documented tool_calls field.
+			// Normalize it before executing tools so the markup can never reach QQ.
+			message.Content = cleanContent
+			message.ToolCalls = parsedCalls
+		}
+	}
+	if len(message.ToolCalls) == 0 {
+		return sanitizeAIText(message.Content), nil
 	}
 	results := make([]string, 0, min(len(message.ToolCalls), value.AI.MaxToolCalls))
 	toolMessages := make([]deepSeekMessage, 0, len(message.ToolCalls))
@@ -110,7 +128,56 @@ func (m *Manager) answerWithAI(ctx context.Context, conversation Conversation, h
 	if err != nil || len(finalResponse.Choices) == 0 || strings.TrimSpace(finalResponse.Choices[0].Message.Content) == "" {
 		return strings.Join(results, "\n"), nil
 	}
-	return redactForAI(finalResponse.Choices[0].Message.Content), nil
+	return sanitizeAIText(redactForAI(finalResponse.Choices[0].Message.Content)), nil
+}
+
+func parseDSMLToolCalls(content string) (string, []deepSeekToolCall) {
+	start := strings.Index(content, dsmlToolCallsStart)
+	if start < 0 {
+		return strings.TrimSpace(content), nil
+	}
+	relativeEnd := strings.Index(content[start+len(dsmlToolCallsStart):], dsmlToolCallsEnd)
+	if relativeEnd < 0 {
+		// A truncated model response must not leak an internal protocol block.
+		return strings.TrimSpace(content[:start]), nil
+	}
+	end := start + len(dsmlToolCallsStart) + relativeEnd + len(dsmlToolCallsEnd)
+	block := content[start+len(dsmlToolCallsStart) : start+len(dsmlToolCallsStart)+relativeEnd]
+	matches := dsmlInvokePattern.FindAllStringSubmatch(block, -1)
+	calls := make([]deepSeekToolCall, 0, len(matches))
+	for index, match := range matches {
+		if len(match) != 3 || strings.TrimSpace(match[1]) == "" {
+			continue
+		}
+		arguments := map[string]string{}
+		for _, parameter := range dsmlParamPattern.FindAllStringSubmatch(match[2], -1) {
+			if len(parameter) == 3 && strings.TrimSpace(parameter[1]) != "" {
+				arguments[parameter[1]] = html.UnescapeString(strings.TrimSpace(parameter[2]))
+			}
+		}
+		argumentBytes, err := json.Marshal(arguments)
+		if err != nil {
+			continue
+		}
+		calls = append(calls, deepSeekToolCall{
+			ID:   fmt.Sprintf("dsml-call-%d", index+1),
+			Type: "function",
+			Function: deepSeekToolFunction{
+				Name:      strings.TrimSpace(match[1]),
+				Arguments: string(argumentBytes),
+			},
+		})
+	}
+	cleaned := strings.TrimSpace(content[:start] + content[end:])
+	return cleaned, calls
+}
+
+func sanitizeAIText(value string) string {
+	cleaned, _ := parseDSMLToolCalls(value)
+	cleaned = strings.ReplaceAll(cleaned, dsmlToolCallsStart, "")
+	cleaned = strings.ReplaceAll(cleaned, dsmlToolCallsEnd, "")
+	cleaned = strings.ReplaceAll(cleaned, "<|DSML|>", "")
+	return strings.TrimSpace(cleaned)
 }
 
 func isAIWriteTool(name string) bool {

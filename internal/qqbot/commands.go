@@ -273,6 +273,15 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 	if compact == "帮助" || compact == "命令" || compact == "help" {
 		return commandHelp(), true
 	}
+	if isPersonaListRequest(compact) {
+		return m.personaListText(""), true
+	}
+	if character, ok := parsePersonaSwitch(compact); ok {
+		return m.switchPersonaFromChat(conversation, character), true
+	}
+	if strings.Contains(compact, "切换人设") || strings.Contains(compact, "切换角色") {
+		return m.personaListText("没有识别到这个人设，请从下面的列表中选择。"), true
+	}
 	value := m.Config()
 	if containsAny(compact, "服务器状态", "服务状态", "运行状态") {
 		if !value.Permissions.QueryServerStatus {
@@ -340,6 +349,12 @@ func (m *Manager) handleLocalCommand(ctx context.Context, conversation Conversat
 		name = strings.TrimSpace(name)
 		return m.baseWorkersText(name), true
 	}
+	if strings.Contains(compact, "饲料") || strings.Contains(compact, "饲料箱") {
+		if !value.Permissions.QueryBases {
+			return "据点查询未开放。", true
+		}
+		return m.baseFeedText(feedBaseQuery(compact)), true
+	}
 	if oldName, newName, ok := parseRename(text); ok {
 		return m.requestRename(conversation, oldName, newName), true
 	}
@@ -391,7 +406,84 @@ func commandHelp() string {
 		"• 石头还有多少 / 石头在哪\n" +
 		"• 据点列表 / 第一据点有哪些东西 / 第一据点异常帕鲁 / 第一据点详情\n" +
 		"• 配种农场 / 配种提醒 / 最近一次备份 / 下次自动重启\n" +
+		"• 人设 / 切换人设（管理员可查看并切换捣蛋喵、棉悠悠）\n" +
 		"管理员还可发起：把旧基地改名为第一据点、启动服务器、重启服务器、关服。危险操作需在 60 秒内回复六位验证码。"
+}
+
+func isPersonaListRequest(compact string) bool {
+	switch compact {
+	case "人设", "人设列表", "查看人设", "有哪些人设", "可用人设", "切换人设", "角色", "角色列表", "查看角色", "有哪些角色", "切换角色":
+		return true
+	default:
+		return false
+	}
+}
+
+func parsePersonaSwitch(compact string) (string, bool) {
+	prefixes := []string{"切换人设", "切换角色", "切换到", "更换人设", "更换角色", "换成人设", "换成角色", "人设"}
+	candidate := ""
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(compact, prefix) {
+			candidate = strings.TrimPrefix(compact, prefix)
+			break
+		}
+	}
+	candidate = strings.TrimPrefix(candidate, "为")
+	if candidate == "" {
+		return "", false
+	}
+	switch candidate {
+	case "1", "捣蛋喵", "捣蛋猫", "cattiva":
+		return config.QQBotPersonaCharacterCattiva, true
+	case "2", "棉悠悠", "lamball":
+		return config.QQBotPersonaCharacterLamball, true
+	case "3", "佐伊", "zoe", "zoerayne", "zoe rayne":
+		return config.QQBotPersonaCharacterZoe, true
+	default:
+		return "", false
+	}
+}
+
+func (m *Manager) personaListText(prefix string) string {
+	value := m.Config()
+	lines := make([]string, 0, len(personaCharacterOptions)+3)
+	if prefix != "" {
+		lines = append(lines, prefix)
+	}
+	lines = append(lines, "可切换的人设：")
+	for index, option := range personaCharacterOptions {
+		marker := " "
+		if option.Character == value.Persona.Character {
+			marker = "（当前）"
+		}
+		lines = append(lines, fmt.Sprintf("%d. %s（%s）%s：%s", index+1, option.Name, option.Alias, marker, option.Intro))
+	}
+	lines = append(lines, "切换方式：切换人设 1，或切换人设 棉悠悠。当前语气设置会保留。")
+	return strings.Join(lines, "\n")
+}
+
+func (m *Manager) switchPersonaFromChat(conversation Conversation, character string) string {
+	value := m.Config()
+	if !contains(value.AdminQQIDs, conversation.UserID) {
+		return "只有配置中的管理员 QQ 可以切换机器人角色。"
+	}
+	option, ok := personaCharacterOptionFor(character)
+	if !ok {
+		return m.personaListText("没有识别到这个人设，请从下面的列表中选择。")
+	}
+	if value.Persona.Character == character {
+		return fmt.Sprintf("当前已经是%s，不需要重复切换。", personaCharacterLabel(character))
+	}
+	if err := m.SwitchPersonaCharacter(character); err != nil {
+		return "人设切换失败：" + safeError(err.Error())
+	}
+	_ = service.AddOperationAudit(m.db, database.OperationAudit{
+		Action:    "qq_bot.persona_switch",
+		Status:    "success",
+		Detail:    fmt.Sprintf("QQ %s，会话 %s，角色 %s", conversation.UserID, conversation.Type, option.Name),
+		CreatedAt: time.Now().UTC(),
+	})
+	return fmt.Sprintf("已切换为%s！之后的回复会使用这个人设。", personaCharacterLabel(character))
 }
 
 func (m *Manager) serverStatusText() string {
@@ -647,6 +739,69 @@ func (m *Manager) basesText() string {
 		lines = append(lines, fmt.Sprintf("• %s：%d 只工作帕鲁", base.DisplayName, len(workers)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func feedBaseQuery(compact string) string {
+	query := compact
+	for _, prefix := range []string{"查询", "查一下", "看看", "查看"} {
+		query = strings.TrimPrefix(query, prefix)
+	}
+	for _, suffix := range []string{"饲料箱", "饲料", "食物"} {
+		query = strings.TrimSuffix(query, suffix)
+	}
+	query = strings.TrimSuffix(strings.TrimSpace(query), "的")
+	return strings.TrimSpace(query)
+}
+
+func (m *Manager) baseFeedText(name string) string {
+	bases, metadata, err := service.ListBaseCamps(m.db)
+	if err != nil {
+		return "暂时没有可用的据点快照。"
+	}
+	if name != "" {
+		base, findErr := m.findBase(name)
+		if findErr != nil {
+			return findErr.Error()
+		}
+		return m.feedTextForBase(base)
+	}
+	lines := []string{fmt.Sprintf("饲料箱快照：共 %d 个据点，解析于 %s", len(bases), formatTime(metadata.SnapshotTime))}
+	for _, base := range bases {
+		lines = append(lines, m.feedTextForBase(base))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *Manager) feedTextForBase(base database.BaseCampSnapshot) string {
+	feedBoxes, _, err := service.FeedBoxes(m.db, base.BaseID)
+	if err != nil {
+		return fmt.Sprintf("• %s：暂时无法读取饲料箱。", base.DisplayName)
+	}
+	if len(feedBoxes) == 0 {
+		return fmt.Sprintf("• %s：没有找到饲料箱数据。", base.DisplayName)
+	}
+	totals := make(map[string]int64)
+	var total int64
+	for _, box := range feedBoxes {
+		for _, slot := range box.Slots {
+			itemName := slot.ItemDisplayName
+			if itemName == "" {
+				itemName = gamelabels.ItemChineseName(slot.ItemID, slot.ItemName)
+			}
+			totals[itemName] += slot.Count
+			total += slot.Count
+		}
+	}
+	items := make([]string, 0, len(totals))
+	for name, count := range totals {
+		items = append(items, fmt.Sprintf("%s×%d", name, count))
+	}
+	sort.Strings(items)
+	detail := "暂无食物"
+	if len(items) > 0 {
+		detail = strings.Join(items, "、")
+	}
+	return fmt.Sprintf("• %s：%d 个饲料箱，共 %d 件（%s）", base.DisplayName, len(feedBoxes), total, detail)
 }
 
 func (m *Manager) baseWorkersText(name string) string {

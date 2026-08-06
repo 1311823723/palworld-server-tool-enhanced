@@ -84,24 +84,34 @@ function requestBody() {
 
 async function load() {
   loading.value = true;
-  const [schemaResponse, currentResponse, backupResponse] = await Promise.all([api.getWorldSettingsSchema(), api.getWorldSettings(), api.getWorldSettingsBackups()]);
-  loading.value = false;
-  if (schemaResponse.statusCode.value !== 200 || currentResponse.statusCode.value !== 200) {
-    const failed = currentResponse.statusCode.value !== 200 ? currentResponse : schemaResponse;
-    message.error(apiErrorText(failed.data.value, "世界设置读取失败", failed.statusCode.value, failed.error?.value)); return;
+  try {
+    const [schemaResponse, currentResponse, backupResponse] = await Promise.all([
+      api.getWorldSettingsSchema(),
+      api.getWorldSettings(),
+      api.getWorldSettingsBackups(),
+    ]);
+    if (schemaResponse.statusCode.value !== 200 || currentResponse.statusCode.value !== 200) {
+      const failed = currentResponse.statusCode.value !== 200 ? currentResponse : schemaResponse;
+      message.error(apiErrorText(failed.data.value, "世界设置读取失败", failed.statusCode.value, failed.error?.value));
+      return;
+    }
+    schema.value = schemaResponse.data.value?.settings || [];
+    schemaVersion.value = schemaResponse.data.value?.schema_version || "";
+    current.value = currentResponse.data.value || current.value;
+    Object.keys(values).forEach((key) => delete values[key]);
+    schema.value.forEach((definition) => {
+      if (!definition.secret) values[definition.key] = current.value.values?.[definition.key] ?? definition.default;
+      secretInputs[definition.key] = "";
+    });
+    clearSecrets.value = [];
+    backups.value = backupResponse.statusCode.value === 200 ? backupResponse.data.value?.items || [] : [];
+    validation.value = null;
+    confirmText.value = "";
+  } catch (error) {
+    message.error(apiErrorText(null, "世界设置读取失败", 0, String(error)));
+  } finally {
+    loading.value = false;
   }
-  schema.value = schemaResponse.data.value?.settings || [];
-  schemaVersion.value = schemaResponse.data.value?.schema_version || "";
-  current.value = currentResponse.data.value || current.value;
-  Object.keys(values).forEach((key) => delete values[key]);
-  schema.value.forEach((definition) => {
-    if (!definition.secret) values[definition.key] = current.value.values?.[definition.key] ?? definition.default;
-    secretInputs[definition.key] = "";
-  });
-  clearSecrets.value = [];
-  backups.value = backupResponse.statusCode.value === 200 ? backupResponse.data.value?.items || [] : [];
-  validation.value = null;
-  confirmText.value = "";
 }
 
 async function validateChanges() {

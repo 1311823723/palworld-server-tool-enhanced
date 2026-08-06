@@ -400,8 +400,11 @@ func (manager *Manager) applyValidated(request ChangeRequest, validation Validat
 		return nil
 	}
 	options := supervisor.RestartOptions{ShutdownSeconds: request.ShutdownSeconds, RestartDelay: time.Duration(request.RestartDelaySeconds) * time.Second, Message: request.Message}
-	if options.ShutdownSeconds < 0 || options.RestartDelay < 0 {
-		return result, errors.New("restart delays cannot be negative")
+	if options.ShutdownSeconds < 0 || options.ShutdownSeconds > 3600 {
+		return result, errors.New("shutdown seconds must be between 0 and 3600")
+	}
+	if request.RestartDelaySeconds < 0 || request.RestartDelaySeconds > 3600 {
+		return result, errors.New("restart delay seconds must be between 0 and 3600")
 	}
 	if strings.TrimSpace(options.Message) == "" {
 		options.Message = "服务器设置已修改，即将重启。"

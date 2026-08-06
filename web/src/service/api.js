@@ -1,5 +1,16 @@
 import Service from "./service";
 
+const worldSettingsTimeout = (param = {}) => {
+  const shutdownSeconds = Math.max(0, Number(param.shutdown_seconds) || 0);
+  const restartDelaySeconds = Math.max(0, Number(param.restart_delay_seconds) || 0);
+  // The supervisor waits at least two minutes for the old process, then may
+  // wait for the restart delay and up to 90 seconds for the REST health check.
+  // Keep a small margin so a slow Windows disk or PalServer shutdown does not
+  // make the browser report a false failure while the operation is running.
+  const backendSeconds = Math.max(120, shutdownSeconds + 120) + restartDelaySeconds + 90 + 30;
+  return Math.max(300000, backendSeconds * 1000);
+};
+
 class ApiService extends Service {
   async login(param) {
     let data = param;
@@ -50,22 +61,22 @@ class ApiService extends Service {
   }
   async shutdownServer(param) {
     let data = param;
-    return this.fetch(`/api/server/shutdown`).post(data).json();
+    return this.fetch(`/api/server/shutdown`, 120000).post(data).json();
   }
   async getServerProcess() {
     return this.fetch(`/api/server/process`).get().json();
   }
   async saveServer() {
-    return this.fetch(`/api/server/save`).post().json();
+    return this.fetch(`/api/server/save`, 120000).post().json();
   }
   async startServer() {
-    return this.fetch(`/api/server/start`).post().json();
+    return this.fetch(`/api/server/start`, 30000).post().json();
   }
   async restartServer(param) {
-    return this.fetch(`/api/server/restart`).post(param).json();
+    return this.fetch(`/api/server/restart`, 120000).post(param).json();
   }
   async stopServer(param) {
-    return this.fetch(`/api/server/stop`).post(param).json();
+    return this.fetch(`/api/server/stop`, 120000).post(param).json();
   }
   async setServerWatchdog(param) {
     return this.fetch(`/api/server/watchdog`).post(param).json();
@@ -197,13 +208,13 @@ class ApiService extends Service {
     return this.fetch(`/api/world-settings/validate`).post(param).json();
   }
   async applyWorldSettings(param) {
-    return this.fetch(`/api/world-settings/apply`, 180000).post(param).json();
+    return this.fetch(`/api/world-settings/apply`, worldSettingsTimeout(param)).post(param).json();
   }
   async getWorldSettingsBackups() {
     return this.fetch(`/api/world-settings/backups`).get().json();
   }
   async restoreWorldSettingsBackup(backupId, param) {
-    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}/restore`, 180000).post(param).json();
+    return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}/restore`, worldSettingsTimeout(param)).post(param).json();
   }
   async deleteWorldSettingsBackup(backupId) {
     return this.fetch(`/api/world-settings/backups/${encodeURIComponent(backupId)}`).delete().json();
@@ -311,7 +322,7 @@ class ApiService extends Service {
     return this.fetch(`/api/backup?${query}`).get().json();
   }
   async createBackup() {
-    return this.fetch(`/api/backup`).post().json();
+    return this.fetch(`/api/backup`, 300000).post().json();
   }
 
   async removeBackup(uuid) {

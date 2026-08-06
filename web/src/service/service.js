@@ -17,6 +17,7 @@ class Service {
    * @return {Promise<Response>} A Promise that resolves to the response from the server.
    */
   fetch(url, timeoutMs = REQUEST_TIMEOUT_MS) {
+    const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
     return useFetch(`${url}`, {
       updateDataOnError: true,
       timeout: timeoutMs,
@@ -49,13 +50,13 @@ class Service {
           const timedOut = /timeout|aborted/i.test(String(context.error || ""));
           context.data = {
             error: timedOut
-              ? "连接 PST 超过 8 秒没有响应"
+              ? `连接 PST 超过 ${timeoutSeconds} 秒没有响应`
               : "无法连接 PST",
           };
           publishConnectionState({
             state: timedOut ? "timeout" : "offline",
             message: timedOut
-              ? "PST 超过 8 秒没有响应"
+              ? `PST 超过 ${timeoutSeconds} 秒没有响应`
               : "当前无法连接 PST",
           });
         }

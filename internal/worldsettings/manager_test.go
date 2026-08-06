@@ -177,6 +177,18 @@ func TestConcurrentApplyReturnsBusy(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsExcessiveRestartDelays(t *testing.T) {
+	manager, _, _ := newManagerFixture(t, &fakeProcessManager{})
+	for _, request := range []ChangeRequest{
+		{Changes: map[string]any{"ServerName": "Too long"}, ShutdownSeconds: 3601},
+		{Changes: map[string]any{"ServerName": "Too long"}, RestartDelaySeconds: 3601},
+	} {
+		if _, err := manager.Apply(request); err == nil {
+			t.Fatal("expected excessive restart delay to be rejected")
+		}
+	}
+}
+
 func TestBackupIDsRejectPathTraversal(t *testing.T) {
 	manager, _, _ := newManagerFixture(t, &fakeProcessManager{})
 	for _, id := range []string{"../PalWorldSettings.ini", "..\\secret.ini", "/tmp/file.ini", "not-a-backup.ini"} {
