@@ -88,6 +88,7 @@ const personaStyleOptions = [
 const personaCharacterOptions = [
   { label: "捣蛋喵（Cattiva）", value: "cattiva" },
   { label: "棉悠悠（Lamball）", value: "lamball" },
+  { label: "佐伊（Zoe）", value: "zoe" },
 ];
 const personaPreview = computed(() => {
   if (!form.persona.enabled) return "服务器当前运行正常。在线玩家：6 人。";
@@ -95,6 +96,11 @@ const personaPreview = computed(() => {
     if (form.persona.style === "restrained") return "嗯……棉悠悠查到了，训练家你看一下……服务器当前运行正常，在线玩家 6 人。";
     if (form.persona.style === "mischievous") return "嘿、嘿嘿……虽然有一点点紧张，但棉悠悠还是查到了！服务器当前运行正常，在线玩家 6 人。";
     return "嗯……训、训练家，棉悠悠帮你查到了~服务器当前运行正常，在线玩家 6 人。";
+  }
+  if (form.persona.character === "zoe") {
+    if (form.persona.style === "restrained") return "我查过了，结果如下。别因为我说得直接就走神。服务器当前运行正常，在线玩家 6 人。";
+    if (form.persona.style === "mischievous") return "哼，这点运营工作还难不倒我。结果给你，记得认真看。服务器正常，在线玩家 6 人。";
+    return "训练家，我已经查过了，情况整理好了。哼，别以为我会一直替你操心。服务器运行正常，当前在线 6 人。";
   }
   if (form.persona.style === "restrained") return "好的喵，本喵查到了。服务器当前运行正常，在线玩家 6 人。";
   if (form.persona.style === "mischievous") return "嘿嘿，这点小事可难不倒本喵喵~服务器当前运行正常，在线玩家 6 人。";
@@ -395,7 +401,7 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
           </n-card>
 
           <n-card title="5. 回复风格" size="small">
-            <div class="section-toggle"><div><b>使用帕鲁人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间、状态和确认码。</span></div><n-switch v-model:value="form.persona.enabled" /></div>
+            <div class="section-toggle"><div><b>使用帕鲁人设</b><span>基础命令、主动通知和 DeepSeek 共用；不会改写数量、时间和确认码。管理员也可以在 QQ 中发送“切换人设”查看并切换角色。</span></div><n-switch v-model:value="form.persona.enabled" /></div>
             <n-collapse-transition :show="form.persona.enabled">
               <div class="form-grid persona-form">
                 <n-form-item label="角色">
@@ -445,6 +451,9 @@ onBeforeUnmount(() => window.clearInterval(statusTimer));
           <n-card title="管理员命令" size="small">
             <code>@机器人 把旧基地改名为第一据点</code>
             <code>@机器人 重启服务器</code>
+            <code>@机器人 切换人设</code>
+            <code>@机器人 切换人设 棉悠悠</code>
+            <code>@机器人 切换人设 佐伊</code>
             <p>机器人会返回六位验证码。必须由同一 QQ 在同一会话中于 60 秒内确认。</p>
           </n-card>
           <n-card title="连接检查" size="small">

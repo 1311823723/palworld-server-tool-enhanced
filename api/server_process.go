@@ -178,6 +178,10 @@ func saveServer(manager ServerProcessManager) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "server process supervisor is unavailable"})
 			return
 		}
+		if !manager.ProcessStatus().Running {
+			writeSupervisorError(c, supervisor.ErrNotRunning)
+			return
+		}
 		if err := manager.SaveWorld(); err != nil {
 			logger.Errorf("PalServer REST save failed: %v\n", err)
 			c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "save world: " + err.Error()})

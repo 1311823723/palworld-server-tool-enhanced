@@ -144,6 +144,7 @@ const (
 
 	QQBotPersonaCharacterCattiva = "cattiva"
 	QQBotPersonaCharacterLamball = "lamball"
+	QQBotPersonaCharacterZoe     = "zoe"
 )
 
 type QQBotPersonaConfig struct {
@@ -271,6 +272,7 @@ func Default() Config {
 	value.QQBot.Persona = QQBotPersonaConfig{
 		Enabled:        true,
 		Style:          QQBotPersonaLively,
+		Character:      QQBotPersonaCharacterCattiva,
 		SeriousOnError: true,
 	}
 	return value
@@ -440,6 +442,32 @@ func (s *Store) SetQQBot(value QQBotConfig) error {
 	})
 }
 
+// SetQQBotPersonaCharacter updates only the persisted QQ bot character. It is
+// used by the administrator chat command so a persona switch cannot overwrite
+// tokens, group lists, permissions, or other settings changed elsewhere.
+func (s *Store) SetQQBotPersonaCharacter(character string) error {
+	if character != QQBotPersonaCharacterCattiva && character != QQBotPersonaCharacterLamball && character != QQBotPersonaCharacterZoe {
+		return errors.New("QQ 机器人角色不受支持")
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		bucket := tx.Bucket(configBucket)
+		current := Default()
+		if err := json.Unmarshal(bucket.Get(configKey), &current); err != nil {
+			return err
+		}
+		current.QQBot = NormalizeQQBot(current.QQBot)
+		current.QQBot.Persona.Character = character
+		if err := ValidateQQBot(current.QQBot); err != nil {
+			return err
+		}
+		data, err := json.Marshal(current)
+		if err != nil {
+			return err
+		}
+		return bucket.Put(configKey, data)
+	})
+}
+
 func Validate(value Config) error {
 	value.ServerProcess = NormalizeServerProcess(value.ServerProcess)
 	if err := ValidateWebPort(value.Web.Port); err != nil {
@@ -520,6 +548,9 @@ func NormalizeQQBot(value QQBotConfig) QQBotConfig {
 	if strings.TrimSpace(value.Persona.Style) == "" {
 		value.Persona = defaults.Persona
 	}
+	if strings.TrimSpace(value.Persona.Character) == "" {
+		value.Persona.Character = defaults.Persona.Character
+	}
 	if value.AllowedGroupIDs == nil {
 		value.AllowedGroupIDs = []string{}
 	}
@@ -598,7 +629,7 @@ func ValidateQQBot(value QQBotConfig) error {
 		return errors.New("QQ 机器人回复风格不受支持")
 	}
 	switch value.Persona.Character {
-	case "", QQBotPersonaCharacterCattiva, QQBotPersonaCharacterLamball:
+	case "", QQBotPersonaCharacterCattiva, QQBotPersonaCharacterLamball, QQBotPersonaCharacterZoe:
 	default:
 		return errors.New("QQ 机器人角色不受支持")
 	}

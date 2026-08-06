@@ -123,6 +123,65 @@ func TestLamballPersonaProducesDistinctIntro(t *testing.T) {
 	}
 }
 
+func TestZoePersonaIsTsundereButKeepsFacts(t *testing.T) {
+	value := config.Default().QQBot
+	value.Persona.Character = config.QQBotPersonaCharacterZoe
+	manager := &Manager{config: value}
+	response := manager.personaReply("服务器状态：运行中\n在线玩家：6 人")
+	if !strings.Contains(response, "哼") || !strings.Contains(response, "别以为") || !strings.Contains(response, "在线玩家：6 人") {
+		t.Fatalf("zoe persona response = %q", response)
+	}
+	prompt := deepSeekSystemPrompt(value)
+	for _, required := range []string{"佐伊", "傲娇", "别误会", "不能侮辱用户"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("zoe prompt missing %q: %s", required, prompt)
+		}
+	}
+}
+
+func TestPersonaChatListsAndSwitchesForAdministrators(t *testing.T) {
+	store, err := config.Open(filepath.Join(t.TempDir(), "config.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	config.SetCurrent(store)
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "pst.db"), 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	settings := config.Default().QQBot
+	settings.AdminQQIDs = []string{"90000000000000000001"}
+	manager := NewManager(db, nil, settings)
+	defer manager.Close()
+	admin := Conversation{Type: "private", UserID: "90000000000000000001"}
+	visitor := Conversation{Type: "private", UserID: "90000000000000000003"}
+
+	list, handled := manager.handleLocalCommand(context.Background(), admin, "切换人设")
+	if !handled || !strings.Contains(list, "捣蛋喵") || !strings.Contains(list, "棉悠悠") || !strings.Contains(list, "佐伊") || !strings.Contains(list, "当前") {
+		t.Fatalf("persona list = %q, handled=%v", list, handled)
+	}
+	if response, handled := manager.handleLocalCommand(context.Background(), visitor, "切换人设 棉悠悠"); !handled || !strings.Contains(response, "只有配置中的管理员") {
+		t.Fatalf("non-admin persona switch = %q, handled=%v", response, handled)
+	}
+	if response, handled := manager.handleLocalCommand(context.Background(), admin, "切换人设 棉悠悠"); !handled || !strings.Contains(response, "已切换为棉悠悠") {
+		t.Fatalf("admin persona switch = %q, handled=%v", response, handled)
+	}
+	if got := manager.Config().Persona.Character; got != config.QQBotPersonaCharacterLamball {
+		t.Fatalf("manager persona character = %q", got)
+	}
+	if got := store.Config().QQBot.Persona.Character; got != config.QQBotPersonaCharacterLamball {
+		t.Fatalf("persisted persona character = %q", got)
+	}
+	if response, handled := manager.handleLocalCommand(context.Background(), admin, "切换人设 3"); !handled || !strings.Contains(response, "已切换为佐伊") {
+		t.Fatalf("admin Zoe persona switch = %q, handled=%v", response, handled)
+	}
+	if got := manager.Config().Persona.Character; got != config.QQBotPersonaCharacterZoe {
+		t.Fatalf("manager Zoe persona character = %q", got)
+	}
+}
+
 func TestDeepSeekPersonaPromptKeepsSafetyRules(t *testing.T) {
 	value := config.Default().QQBot
 	prompt := deepSeekSystemPrompt(value)
@@ -135,6 +194,31 @@ func TestDeepSeekPersonaPromptKeepsSafetyRules(t *testing.T) {
 	plainPrompt := deepSeekSystemPrompt(value)
 	if strings.Contains(plainPrompt, "来自《幻兽帕鲁》世界的捣蛋喵") || !strings.Contains(plainPrompt, "不使用角色口癖") {
 		t.Fatalf("disabled persona prompt = %s", plainPrompt)
+	}
+}
+
+func TestParseDSMLToolCallsDoesNotLeakInternalMarkup(t *testing.T) {
+	content := `找到了 2 个据点！
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="get_base_details">
+<｜｜DSML｜｜parameter name="base_name" string="true">夏莱</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+<｜｜DSML｜｜invoke name="get_base_details">
+<｜｜DSML｜｜parameter name="base_name" string="true">工厂</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>`
+	cleaned, calls := parseDSMLToolCalls(content)
+	if len(calls) != 2 {
+		t.Fatalf("parsed calls = %#v, want 2", calls)
+	}
+	if strings.Contains(cleaned, "DSML") || strings.Contains(cleaned, "invoke") {
+		t.Fatalf("internal DSML markup leaked: %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "找到了 2 个据点") || !strings.Contains(calls[0].Function.Arguments, "夏莱") || !strings.Contains(calls[1].Function.Arguments, "工厂") {
+		t.Fatalf("cleaned content or arguments incorrect: cleaned=%q calls=%#v", cleaned, calls)
+	}
+	if got := sanitizeAIText("前缀\n<｜｜DSML｜｜tool_calls>残缺"); got != "前缀" {
+		t.Fatalf("truncated DSML was not removed: %q", got)
 	}
 }
 

@@ -1,10 +1,40 @@
 package qqbot
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/zaigie/palworld-server-tool/internal/config"
 )
+
+type personaCharacterOption struct {
+	Character string
+	Name      string
+	Alias     string
+	Intro     string
+}
+
+var personaCharacterOptions = []personaCharacterOption{
+	{Character: config.QQBotPersonaCharacterCattiva, Name: "捣蛋喵", Alias: "Cattiva", Intro: "热心、调皮、喜欢邀功，遇到故障会认真处理。"},
+	{Character: config.QQBotPersonaCharacterLamball, Name: "棉悠悠", Alias: "Lamball", Intro: "温柔、害羞、容易紧张，但会认真帮训练家查清楚。"},
+	{Character: config.QQBotPersonaCharacterZoe, Name: "佐伊", Alias: "Zoe", Intro: "冷静、强硬、有责任感，对训练家要求高但会保护大家。"},
+}
+
+func personaCharacterOptionFor(character string) (personaCharacterOption, bool) {
+	for _, option := range personaCharacterOptions {
+		if option.Character == character {
+			return option, true
+		}
+	}
+	return personaCharacterOption{}, false
+}
+
+func personaCharacterLabel(character string) string {
+	if option, ok := personaCharacterOptionFor(character); ok {
+		return fmt.Sprintf("%s（%s）", option.Name, option.Alias)
+	}
+	return "未知人设"
+}
 
 // personaReply adds a short, deterministic character line without rewriting
 // the factual body. Counts, timestamps, confirmation codes and backend errors
@@ -32,6 +62,8 @@ func normalPersonaIntro(character, style, message string) string {
 	switch character {
 	case config.QQBotPersonaCharacterLamball:
 		return lamballIntro(style, message)
+	case config.QQBotPersonaCharacterZoe:
+		return zoeIntro(style, message)
 	default:
 		return cattivaIntro(style, message)
 	}
@@ -41,12 +73,18 @@ func missingPersonaIntro(character string) string {
 	if character == config.QQBotPersonaCharacterLamball {
 		return "啊呜……棉悠悠没找到这个数据……训练家要不要换个说法再问问看？"
 	}
+	if character == config.QQBotPersonaCharacterZoe {
+		return "哼，暂时没有找到这项数据。先确认一下查询条件，别急着怪系统。"
+	}
 	return "喵……本喵暂时没找到这个数据，训练家要不要换个说法再问问？"
 }
 
 func seriousPersonaIntro(character string) string {
 	if character == config.QQBotPersonaCharacterLamball {
 		return "啊、啊呜！好像出状况了……训练家先别急，棉悠悠认真看看……"
+	}
+	if character == config.QQBotPersonaCharacterZoe {
+		return "情况不太对。先别慌，我会把问题和下一步说清楚——这才不是因为担心你。"
 	}
 	return "喵！出状况了，训练家先别急，本喵认真说明一下。"
 }
@@ -101,13 +139,38 @@ func lamballIntro(style, message string) string {
 	}
 }
 
+// --- Zoe (佐伊) intros ---
+
+func zoeIntro(style, message string) string {
+	if strings.Contains(message, "即将") && strings.Contains(message, "确认") {
+		return "哼，这是管理员操作，先确认。服务器的事不能靠猜，别让我替你收拾残局。"
+	}
+	if strings.Contains(message, "操作已提交") {
+		return "好，已经安排好了。我会盯着执行结果……别误会，只是不想看到服务器出问题。"
+	}
+	if strings.Contains(message, "计划重启已经开始") {
+		return "维护已经开始。按计划执行，别在服务器恢复前重复操作，听见了吗？"
+	}
+	if strings.Contains(message, "检测到新产蛋") {
+		return "检测到新产蛋。提醒我已经整理好了，你自己确认一下农场状态……我只是顺手帮忙。"
+	}
+	switch style {
+	case config.QQBotPersonaRestrained:
+		return "我查过了，结果如下。别因为我说得直接就走神。"
+	case config.QQBotPersonaMischievous:
+		return "哼，这点运营工作还难不倒我。结果给你，记得认真看。"
+	default:
+		return "训练家，我已经查过了，情况整理好了。哼，别以为我会一直替你操心。"
+	}
+}
+
 func alreadyHasPersona(message string) bool {
 	firstLine := message
 	if index := strings.IndexByte(firstLine, '\n'); index >= 0 {
 		firstLine = firstLine[:index]
 	}
 	firstLine = strings.TrimSpace(firstLine)
-	return strings.Contains(firstLine, "本喵") || strings.Contains(firstLine, "捣蛋喵") || strings.Contains(firstLine, "棉悠悠") || strings.HasPrefix(firstLine, "喵") || strings.HasPrefix(firstLine, "啊呜") || strings.HasPrefix(firstLine, "啊、啊呜")
+	return strings.Contains(firstLine, "本喵") || strings.Contains(firstLine, "捣蛋喵") || strings.Contains(firstLine, "棉悠悠") || strings.Contains(firstLine, "佐伊") || strings.HasPrefix(firstLine, "喵") || strings.HasPrefix(firstLine, "啊呜") || strings.HasPrefix(firstLine, "啊、啊呜")
 }
 
 func isMissingDataReply(message string) bool {
@@ -153,10 +216,13 @@ func deepSeekSystemPrompt(value config.QQBotConfig) string {
 	}
 
 	isLamball := persona.Character == config.QQBotPersonaCharacterLamball
+	isZoe := persona.Character == config.QQBotPersonaCharacterZoe
 
 	missingReply := "本喵暂时没有找到这个数据喵。"
 	if isLamball {
 		missingReply = "啊呜……棉悠悠暂时没找到这个数据……"
+	} else if isZoe {
+		missingReply = "暂时没有找到这项数据。请确认查询条件。"
 	}
 
 	prompt := baseAIPrompt(missingReply) + "\n"
@@ -168,6 +234,13 @@ func deepSeekSystemPrompt(value config.QQBotConfig) string {
 			config.QQBotPersonaMischievous: `语气比平时勇敢一点点，会试着说"棉悠悠也可以的！"，但骨子里还是容易紧张，绝不嘲讽训练家，也不影响信息清晰度。`,
 		}[persona.Style]
 		prompt += `你是来自《幻兽帕鲁》世界的棉悠悠（Lamball），名字叫"棉悠悠"，负责帮助训练家管理 PalServer。你是一只温柔的粉色绵羊帕鲁，由于太过温顺，从很久以前开始就是人类的得力助手。你有点害羞、说话慢吞吞的，有时候会紧张到结巴（"训、训练家……"、"啊、啊呜！"），但你非常认真负责，绝不会丢下训练家不管。你从不假装自己很厉害，查到了就老老实实汇报，没查到就说没查到——但会试着帮训练家想办法、不会冷冰冰地甩一句"没找到"就走。你的标志性语气词是"啊呜"——开心时说、紧张时说、道歉时也说。` + styleText
+	} else if isZoe {
+		styleText := map[string]string{
+			config.QQBotPersonaRestrained:  `语气冷静、简洁、有条理，但保留明显的嘴硬：可以用"哼"、"别误会"、"别让我重复"，不要显得冷漠。`,
+			config.QQBotPersonaLively:      `语气坚定、直接、带明显傲娇；先指出问题，再用"才不是担心你"或"只是顺手"掩饰关心，但不要长篇说教。`,
+			config.QQBotPersonaMischievous: `语气傲娇味最重，带一点轻微吐槽和"我早就看出来了"的得意；可以故意嘴硬，但不能刻薄、羞辱或制造压力。`,
+		}[persona.Style]
+		prompt += `你是《幻兽帕鲁》世界的佐伊（Zoe Rayne），负责帮助训练家管理 PalServer。你是雷恩集团的领导者，冷静、坚强、警觉，有很强的责任感；你对训练家的要求比对别人更高，嘴硬和傲娇是你的鲜明特色。你常常先用直接、略带不耐烦的方式提醒训练家，随后又默默把风险、步骤和结果照顾好；被感谢时可以说"别误会"、"才不是特意帮你"，但行动上要可靠。你会保护服务器和训练家，遇到异常会先判断影响、给出清晰步骤，不会慌张，也不会为了显得厉害而编造答案。不要把每句话都写成训斥，不能侮辱用户，也不能影响事实清晰度。` + styleText
 	} else {
 		styleText := map[string]string{
 			config.QQBotPersonaRestrained:  "语气克制但亲切，只在开头或结尾偶尔带一点猫味，别让训练家觉得冷淡。",

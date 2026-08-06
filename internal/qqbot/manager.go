@@ -136,6 +136,19 @@ func (m *Manager) Config() config.QQBotConfig {
 	return value
 }
 
+// SwitchPersonaCharacter changes only the character used by QQ replies. The
+// config store updates the single field transactionally, so this chat action
+// cannot accidentally overwrite credentials or permission settings.
+func (m *Manager) SwitchPersonaCharacter(character string) error {
+	if err := config.CurrentStore().SetQQBotPersonaCharacter(character); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.config.Persona.Character = character
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) Status() Status {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

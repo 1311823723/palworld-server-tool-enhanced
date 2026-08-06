@@ -15,10 +15,15 @@ test("QQ bot page keeps secrets ephemeral and explains no-AI commands", () => {
   assert.match(page, /使用帕鲁人设/);
   assert.match(page, /捣蛋喵（Cattiva）/);
   assert.match(page, /棉悠悠（Lamball）/);
+  assert.match(page, /佐伊（Zoe）/);
+  assert.match(page, /别以为我会一直替你操心/);
   assert.match(page, /严重故障/);
   assert.match(page, /deepseek-v4-flash/);
   assert.doesNotMatch(page, /deepseek-chat|deepseek-reasoner/);
   assert.match(page, /persona: \{ \.\.\.form\.persona \}/);
+  assert.match(page, /切换人设/);
+  assert.match(page, /切换人设 棉悠悠/);
+  assert.match(page, /切换人设 佐伊/);
   assert.match(page, /oneBotToken\.value = ""/);
   assert.match(page, /deepSeekKey\.value = ""/);
   assert.doesNotMatch(page, /localStorage.*oneBot|localStorage.*deepSeek/i);

@@ -26,4 +26,13 @@ test("world settings uses the new task-oriented structure", () => {
   const worldSettings = source("../views/WorldSettings.vue");
   assert.match(worldSettings, /commonSettingKeys/);
   assert.match(worldSettings, /settings-action-bar/);
+  assert.match(worldSettings, /try \{/);
+  assert.match(worldSettings, /finally \{/);
+});
+
+test("long-running server operations use a timeout longer than the default 8 seconds", () => {
+  const api = source("../service/api.js");
+  assert.match(api, /saveServer\(\).*fetch\(`\/api\/server\/save`, 120000\)/s);
+  assert.match(api, /restartServer\(param\).*fetch\(`\/api\/server\/restart`, 120000\)/s);
+  assert.match(api, /worldSettingsTimeout\(param\)/);
 });
